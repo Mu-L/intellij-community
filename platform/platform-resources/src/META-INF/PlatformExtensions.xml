@@ -110,7 +110,6 @@
     <projectService serviceImplementation="com.intellij.notification.EventLog$ProjectTracker" preload="notHeadless"/>
     <projectService serviceImplementation="com.intellij.notification.impl.NotificationsManagerImpl$ProjectNotificationsComponent" preload="notHeadless"/>
 
-    <applicationService serviceImplementation="com.intellij.execution.wsl.WSLDistributionService"/>
     <experimentalFeature id="wsl.p9.support" percentOfUsers="100">
       <description>Allow IDE to use the \\wsl$\ paths to access the WSL filesystem using 9P protocol (available since Windows 10 update 1903).</description>
     </experimentalFeature>
@@ -426,8 +425,6 @@
     <applicationService serviceInterface="com.intellij.util.io.IoService"
                         serviceImplementation="com.intellij.util.io.IoServiceImpl" />
 
-    <applicationService serviceImplementation="com.intellij.ide.CommandLineWaitingManager" />
-
     <applicationService serviceImplementation="com.intellij.diagnostic.HeapDumpAnalysisSupport"/>
 
     <applicationService serviceInterface="com.intellij.diagnostic.EventWatcher"
@@ -446,9 +443,6 @@
                     serviceImplementation="com.intellij.ide.startup.impl.StartupManagerImpl" preload="notHeadless"/>
     <projectService serviceImplementation="com.intellij.openapi.project.ProjectTypeService"/>
     <projectService serviceImplementation="com.intellij.openapi.ui.MasterDetailsStateService"/>
-    <projectService serviceImplementation="com.intellij.ide.SelectInManager"/>
-
-    <projectService serviceImplementation="com.intellij.ide.errorTreeView.impl.ErrorTreeViewConfiguration"/>
 
     <projectService serviceInterface="com.intellij.ui.docking.DockManager"
                     serviceImplementation="com.intellij.ui.docking.impl.DockManagerImpl"/>
@@ -469,15 +463,11 @@
     <registryKey key="scroll.to.first.trace" defaultValue="true"
                  description="In tests view: if 'scrollToStackTrace' is enabled and node with multiple children is selected, scroll to the trace of the first child"/>
 
-    <projectService serviceImplementation="com.intellij.execution.testframework.autotest.AutoTestManager"/>
-
     <projectService serviceInterface="com.intellij.openapi.project.ProjectReloadState"
                     serviceImplementation="com.intellij.openapi.project.impl.ProjectReloadStateImpl"/>
 
     <projectService serviceInterface="com.intellij.externalDependencies.ExternalDependenciesManager"
                     serviceImplementation="com.intellij.externalDependencies.impl.ExternalDependenciesManagerImpl"/>
-
-    <projectService serviceImplementation="com.intellij.openapi.fileEditor.impl.EditorHistoryManager"/>
 
     <applicationService serviceInterface="com.intellij.ide.PlatformIdeService"
                         serviceImplementation="com.intellij.ide.PlatformIdeServiceImpl"/>
@@ -901,7 +891,6 @@
     <applicationService serviceImplementation="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.GlobalIgnoredPluginSuggestionState"/>
     <actionPromoter implementation="com.intellij.ui.ToolbarDecoratorActionPromoter"/>
     <actionPromoter implementation="com.intellij.ide.actions.WindowActionPromoter"/>
-    <applicationService serviceImplementation="com.intellij.internal.statistic.local.ActionsGlobalSummaryManager"/>
 
     <projectService serviceInterface="com.intellij.internal.statistic.local.FileTypeUsageSummaryProvider"
                     serviceImplementation="com.intellij.internal.statistic.local.FileTypeUsageLocalSummary"
@@ -996,7 +985,6 @@
     <registryKey key="jdk.downloader.assume.linux.aarch64" defaultValue="false" description="Makes IntelliJ truly believe it's running on arm64 compatible hardware for Linux OS"/>
     <registryKey key="jdk.auto.run.configurations" defaultValue="true" description="Tries to find an SDK for a run configuration" />
 
-
     <actionPromoter implementation="com.intellij.execution.testframework.TestTreeViewActionsPromoter"/>
     <smartSelectProvider implementation="com.intellij.ui.tree.TreeSmartSelectProvider"/>
 
@@ -1014,7 +1002,6 @@
                              key="browsers.settings" bundle="messages.IdeBundle"/>
     <stepsBeforeRunProvider implementation="com.intellij.ide.browsers.LaunchBrowserBeforeRunTaskProvider"/>
     <selectInTarget implementation="com.intellij.ide.browsers.actions.SelectInDefaultBrowserTarget"/>
-    <applicationService serviceImplementation="com.intellij.ide.browsers.WebBrowserManager"/>
     <applicationService serviceImplementation="com.intellij.ide.browsers.WebBrowserXmlService" />
     <applicationService serviceInterface="com.intellij.ide.browsers.WebBrowserService"
                         serviceImplementation="com.intellij.ide.browsers.impl.WebBrowserServiceImpl"/>
@@ -1180,8 +1167,6 @@
     </intentionAction>
     <editorNotificationProvider implementation="com.intellij.ide.lightEdit.LightEditNonExistentFileNotificationProvider"/>
 
-    <applicationService serviceImplementation="com.intellij.openapi.fileTypes.impl.associate.OSFileAssociationPreferences"/>
-
     <postStartupActivity implementation="com.intellij.ide.cds.CDSStartupActivity" order="last"/>
     <statistics.counterUsagesCollector groupId="intellij.cds" version="2"/>
 
@@ -1283,10 +1268,9 @@
 
     <editorFactoryListener implementation="com.intellij.codeInsight.editorActions.ReaderModeEditorFactoryListener"/>
     <readerModeMatcher implementation="com.intellij.diff.actions.DiffReaderModeMatcher"/>
-    <startupActivity implementation="com.intellij.ide.plugins.LanguagePluginDetectionStartupActivity"/>
+    <backgroundPostStartupActivity implementation="com.intellij.ide.plugins.LanguagePluginDetectionStartupActivity"/>
     <notificationGroup id="Language Plugins Notifications" displayType="BALLOON"/>
     <applicationService serviceImplementation="com.intellij.openapi.wm.impl.ToolWindowToolbarProvider"/>
-    <startupActivity implementation="com.intellij.openapi.wm.impl.ToolWindowToolbarActivity"/>
 
     <settingsEntryPointActionProvider implementation="com.intellij.openapi.updateSettings.impl.UpdateSettingsEntryPointActionProvider" order="first"/>
 
