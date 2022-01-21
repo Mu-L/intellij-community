@@ -51,7 +51,7 @@ import static com.intellij.openapi.util.NullableLazyValue.lazyNullable;
  *
  * @see WSLUtil
  */
-public class WSLDistribution {
+public class WSLDistribution implements AbstractWslDistribution {
   public static final String DEFAULT_WSL_MNT_ROOT = "/mnt/";
   private static final int RESOLVE_SYMLINK_TIMEOUT = 10000;
   private static final String RUN_PARAMETER = "run";
@@ -135,10 +135,7 @@ public class WSLDistribution {
     return myVersion;
   }
 
-  /**
-   * @return creates and patches command line, e.g:
-   * {@code ruby -v} => {@code bash -c "ruby -v"}
-   */
+  @Override
   public @NotNull GeneralCommandLine createWslCommandLine(String @NotNull ... command) throws ExecutionException {
     return patchCommandLine(new GeneralCommandLine(command), null, new WSLCommandLineOptions());
   }
@@ -160,7 +157,13 @@ public class WSLDistribution {
     if (processHandlerConsumer != null) {
       processHandlerConsumer.consume(processHandler);
     }
-    return processHandler.runProcess(timeout);
+    ProcessOutput output = processHandler.runProcess(timeout);
+    if (output.getExitCode() != 0 || output.isTimeout() || output.isCancelled()) {
+      LOG.warn("command on wsl: " + commandLine.getCommandLineString() + " was failed:" +
+               "ec=" + output.getExitCode() + ",timeout=" + output.isTimeout() + ",cancelled=" + output.isCancelled()
+               + ",stderr=" + output.getStderr() + ",stdout=" + output.getStdout());
+    }
+    return output;
   }
 
   public @NotNull ProcessOutput executeOnWsl(int timeout, @NonNls String @NotNull ... command) throws ExecutionException {
@@ -469,7 +472,7 @@ public class WSLDistribution {
                        .setExecuteCommandInInteractiveShell(true),
                      5000,
                      null);
-      if (processOutput.checkSuccess(LOG)) {
+      if (processOutput.getExitCode() == 0){
         Map<String, String> result = new HashMap<>();
         for (String string : processOutput.getStdoutLines()) {
           int assignIndex = string.indexOf('=');
@@ -500,9 +503,7 @@ public class WSLDistribution {
     return getUNCRoot() + FileUtil.toSystemDependentName(FileUtil.normalize(wslPath));
   }
 
-  /**
-   * @return Linux path for a file pointed by {@code windowsPath} or null if unavailable, like \\MACHINE\path
-   */
+  @Override
   public @Nullable @NlsSafe String getWslPath(@NotNull String windowsPath) {
     if (FileUtil.toSystemDependentName(windowsPath).startsWith(WslConstants.UNC_PREFIX)) {
       windowsPath = StringUtil.trimStart(FileUtil.toSystemDependentName(windowsPath), WslConstants.UNC_PREFIX);

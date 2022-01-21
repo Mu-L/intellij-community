@@ -38,6 +38,9 @@ internal class CellImpl<T : JComponent>(
   var labelPosition: LabelPosition = LabelPosition.LEFT
     private set
 
+  var widthGroup: String? = null
+    private set
+
   private var property: GraphProperty<*>? = null
   private var applyIfEnabled = false
 
@@ -135,6 +138,11 @@ internal class CellImpl<T : JComponent>(
     this.label = label
     labelPosition = position
     label.putClientProperty(DslComponentPropertyInternal.CELL_LABEL, true)
+    return this
+  }
+
+  override fun widthGroup(group: String): CellImpl<T> {
+    widthGroup = group
     return this
   }
 
