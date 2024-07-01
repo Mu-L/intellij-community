@@ -3,15 +3,15 @@ package com.intellij.tools.ide.metrics.benchmark
 
 import com.intellij.openapi.application.PathManager
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.tool.withRetryAsync
+import com.intellij.tools.ide.metrics.collector.TelemetryMetricsCollector
 import com.intellij.tools.ide.metrics.collector.metrics.*
 import com.intellij.tools.ide.metrics.collector.telemetry.OpentelemetrySpanJsonParser
 import com.intellij.tools.ide.metrics.collector.telemetry.SpanFilter
+import com.intellij.tools.ide.util.common.withRetryBlocking
 import java.nio.file.Path
-import kotlin.math.absoluteValue
 import kotlin.time.Duration.Companion.milliseconds
 
-class SpanMetricsExtractor(private val telemetryJsonFile: Path = getDefaultPathToTelemetrySpanJson()) {
+class BenchmarksSpanMetricsCollector(val spanName: String, private val telemetryJsonFile: Path = getDefaultPathToTelemetrySpanJson()) : TelemetryMetricsCollector {
   companion object {
     fun getDefaultPathToTelemetrySpanJson(): Path {
       return Path.of(System.getProperty("idea.diagnostic.opentelemetry.file",
@@ -19,22 +19,13 @@ class SpanMetricsExtractor(private val telemetryJsonFile: Path = getDefaultPathT
     }
   }
 
-  @Suppress("TestOnlyProblems")
-  suspend fun waitTillMetricsExported(spanName: String): List<PerformanceMetrics.Metric> {
-    val originalMetrics: List<PerformanceMetrics.Metric>? = withRetryAsync(retries = 10, delayBetweenRetries = 300.milliseconds) {
-      TelemetryManager.getInstance().forceFlushMetrics()
-      extractOpenTelemetrySpanMetrics(spanName, forWarmup = true).plus(extractOpenTelemetrySpanMetrics(spanName, forWarmup = false))
-    }
-
-    return requireNotNull(originalMetrics) { "Unable to extract metrics for '$spanName' from $telemetryJsonFile" }
-  }
+  override fun collect(logsDirPath: Path): List<PerformanceMetrics.Metric> = requireNotNull(
+    extractOpenTelemetrySpanMetrics(spanName, forWarmup = true).plus(extractOpenTelemetrySpanMetrics(spanName, forWarmup = false))
+  ) { "Unable to extract metrics for '$spanName' from $telemetryJsonFile" }
 
   private fun getAttemptsSpansStatisticalMetrics(attempts: List<PerformanceMetrics.Metric>, metricsPrefix: String): List<PerformanceMetrics.Metric> {
-    val medianValueOfAttempts: Long = attempts.medianValue()
-    val madValueOfAttempts = attempts.map { (it.value - medianValueOfAttempts).absoluteValue }.median()
-
     val attemptMeanMetric = PerformanceMetrics.newDuration("${metricsPrefix}attempt.mean.ms", attempts.map { it.value }.average().toLong())
-    val attemptMedianMetric = PerformanceMetrics.newDuration("${metricsPrefix}attempt.median.ms", medianValueOfAttempts)
+    val attemptMedianMetric = PerformanceMetrics.newDuration("${metricsPrefix}attempt.median.ms", attempts.medianValue())
 
     // Why minimum matters? Its distribution is better than mean or median.
     // See https://blog.kevmod.com/2016/06/10/benchmarking-minimum-vs-average/
@@ -46,7 +37,7 @@ class SpanMetricsExtractor(private val telemetryJsonFile: Path = getDefaultPathT
                                                                         attempts.standardDeviationValue())
     // "... the MAD is a robust statistic, being more resilient to outliers in data set than the standard deviation."
     // See https://en.m.wikipedia.org/wiki/Median_absolute_deviation
-    val attemptMadMetric = PerformanceMetrics.newDuration("${metricsPrefix}attempt.mad.ms", madValueOfAttempts)
+    val attemptMadMetric = PerformanceMetrics.newDuration("${metricsPrefix}attempt.mad.ms", attempts.madValue())
 
     return listOf(attemptMeanMetric, attemptMedianMetric, attemptMinMetric,
                   attemptRangeMetric, attemptSumMetric, attemptCountMetric, attemptStandardDeviationMetric, attemptMadMetric)
@@ -65,7 +56,7 @@ class SpanMetricsExtractor(private val telemetryJsonFile: Path = getDefaultPathT
   private fun extractOpenTelemetrySpanMetrics(spanName: String, forWarmup: Boolean): List<PerformanceMetrics.Metric> {
     val originalMetrics = OpentelemetrySpanJsonParser(SpanFilter.any())
       .getSpanElements(telemetryJsonFile, spanElementFilter = { it.name == spanName && it.isWarmup == forWarmup })
-      .map { PerformanceMetrics.newDuration(it.name, it.duration) }
+      .map { PerformanceMetrics.newDuration(it.name, it.duration.inWholeMilliseconds) }
       .toList()
 
     val attemptSuffix = "Attempt"
