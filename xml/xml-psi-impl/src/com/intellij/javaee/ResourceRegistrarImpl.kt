@@ -6,14 +6,10 @@ import java.util.ArrayList
 import java.util.HashMap
 
 class ResourceRegistrarImpl : ResourceRegistrar {
-  private val resources = HashMap<String, MutableMap<String, ExternalResourceManagerExImpl.Resource>>()
+  private val resources = HashMap<String, MutableMap<String, ExternalResource>>()
   private val ignored = ArrayList<String>()
 
   internal fun getIgnoredResources(): List<String> = ignored
-
-  override fun addStdResource(resource: @NonNls String, fileName: @NonNls String) {
-    addStdResource(resource = resource, version = null, fileName = fileName, aClass = javaClass)
-  }
 
   override fun addStdResource(resource: @NonNls String, fileName: @NonNls String, aClass: Class<*>?) {
     addStdResource(resource = resource, version = null, fileName = fileName, aClass = aClass)
@@ -27,11 +23,15 @@ class ResourceRegistrarImpl : ResourceRegistrar {
     classLoader: ClassLoader?
   ) {
     ExternalResourceManagerExImpl.getOrCreateMap(resources, version)
-      .put(resource, ExternalResourceManagerExImpl.Resource(file = fileName, aClass = aClass, classLoader = classLoader))
+      .put(resource, ExternalResource(file = fileName, aClass = aClass, classLoader = classLoader))
   }
 
   override fun addStdResource(resource: @NonNls String, version: @NonNls String?, fileName: @NonNls String, aClass: Class<*>?) {
     addStdResource(resource = resource, version = version, fileName = fileName, aClass = aClass, classLoader = null)
+  }
+
+  override fun addStdResource(resource: @NonNls String, fileName: @NonNls String, classLoader: ClassLoader) {
+    addStdResource(resource = resource, version = null, fileName = fileName, aClass = null, classLoader = classLoader)
   }
 
   override fun addIgnoredResource(url: @NonNls String) {
@@ -54,14 +54,12 @@ class ResourceRegistrarImpl : ResourceRegistrar {
   }
 
   fun addInternalResource(resource: @NonNls String, version: @NonNls String?, fileName: @NonNls String?, classLoader: ClassLoader) {
-    addStdResource(
-      resource = resource,
-      version = version,
-      fileName = ExternalResourceManagerEx.STANDARD_SCHEMAS.trimStart('/') + fileName,
+    ExternalResourceManagerExImpl.getOrCreateMap(resources, version = version).put(resource, ExternalResource(
+      file = ExternalResourceManagerEx.STANDARD_SCHEMAS.trimStart('/') + fileName,
       aClass = null,
       classLoader = classLoader,
-    )
+    ))
   }
 
-  internal fun getResources(): Map<String, MutableMap<String, ExternalResourceManagerExImpl.Resource>> = resources
+  internal fun getResources(): Map<String, MutableMap<String, ExternalResource>> = resources
 }

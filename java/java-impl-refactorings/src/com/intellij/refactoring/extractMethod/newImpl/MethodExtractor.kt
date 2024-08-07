@@ -24,7 +24,7 @@ import com.intellij.refactoring.extractMethod.ExtractMethodHandler
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodHelper.guessMethodName
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodHelper.replaceWithMethod
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodPipeline.findAllOptionsToExtract
-import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodPipeline.selectOption
+import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodPipeline.selectOptionWithTargetClass
 import com.intellij.refactoring.extractMethod.newImpl.ExtractMethodPipeline.withFilteredAnnotations
 import com.intellij.refactoring.extractMethod.newImpl.inplace.*
 import com.intellij.refactoring.extractMethod.newImpl.parameterObject.ResultObjectExtractor
@@ -35,6 +35,7 @@ import com.intellij.refactoring.util.CommonRefactoringUtil
 import com.intellij.refactoring.util.ConflictsUtil
 import com.intellij.util.containers.MultiMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.NonNls
@@ -85,17 +86,22 @@ class MethodExtractor {
       val preparePlacesTime = System.currentTimeMillis() - prepareStart
 
       val options = withContext(Dispatchers.EDT) {
-        selectOption(editor, descriptorsForAllTargetPlaces)
+        selectOptionWithTargetClass(editor, file.project, descriptorsForAllTargetPlaces).await()
+      }
+      val guessedNames = readAction { suggestSafeMethodNames(options) }
+      val methodName = guessedNames.first()
+      val extractor = readAction {
+        DuplicatesMethodExtractor.create(options.targetClass, options.elements, methodName, options.isStatic)
       }
       if (EditorSettingsExternalizable.getInstance().isVariableInplaceRenameEnabled) {
         val templateStart = System.currentTimeMillis()
-        runInplaceExtract(editor, range, options)
+        runInplaceExtract(editor, range, extractor, guessedNames)
         val prepareTemplateTime = System.currentTimeMillis() - templateStart
         reportPerformanceStatistics(preparePlacesTime, prepareTemplateTime, descriptorsForAllTargetPlaces.size)
       }
       else {
         withContext(Dispatchers.EDT) {
-          extractInDialog(options.targetClass, options.elements, "", JavaRefactoringSettings.getInstance().EXTRACT_STATIC_METHOD)
+          extractor.extractInDialog()
         }
       }
   }
@@ -121,12 +127,9 @@ class MethodExtractor {
     }
   }
 
-  private suspend fun runInplaceExtract(editor: Editor, range: TextRange, options: ExtractOptions){
-    val popupSettings = readAction { createInplaceSettingsPopup(options) }
-    val guessedNames = readAction { suggestSafeMethodNames(options) }
-    val methodName = guessedNames.first()
-    val suggestedNames = guessedNames.takeIf { it.size > 1 }.orEmpty()
-    val extractor = readAction { DuplicatesMethodExtractor.create(options.targetClass, options.elements, methodName, options.isStatic) }
+  private suspend fun runInplaceExtract(editor: Editor, range: TextRange, extractor: DuplicatesMethodExtractor, methodNames: List<String>){
+    val popupSettings = readAction { createInplaceSettingsPopup(extractor.extractOptions) }
+    val suggestedNames = methodNames.takeIf { it.size > 1 }.orEmpty()
     val inplaceExtractor = readAction { InplaceMethodExtractor(editor, range, popupSettings, extractor) }
     inplaceExtractor.extractAndRunTemplate(suggestedNames)
   }

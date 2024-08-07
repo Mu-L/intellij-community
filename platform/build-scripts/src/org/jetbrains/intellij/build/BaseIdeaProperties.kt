@@ -47,6 +47,7 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + per
   "intellij.editorconfig",
   "intellij.settingsSync",
   "intellij.configurationScript",
+  "intellij.json",
   "intellij.yaml",
   "intellij.html.tools",
   "intellij.tasks.core",
@@ -176,13 +177,5 @@ abstract class BaseIdeaProperties : JetBrainsProductProperties() {
     )
     additionalModulesToCompile = persistentListOf("intellij.tools.jps.build.standalone")
     modulesToCompileTests = persistentListOf("intellij.platform.jps.build.tests")
-  }
-
-  /**
-   * 🌲
-   * see KTIJ-30761
-   */
-  protected fun enableKotlinPluginK2ByDefault() {
-    additionalVmOptions += "-Didea.kotlin.plugin.use.k2=true"
   }
 }

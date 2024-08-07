@@ -17,14 +17,11 @@ package org.jetbrains.idea.maven.dom
 
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ProblemsHolder
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiFile
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.dom.inspections.MavenParentMissedVersionInspection
 import org.jetbrains.idea.maven.dom.inspections.MavenPropertyInParentInspection
 import org.jetbrains.idea.maven.dom.inspections.MavenRedundantGroupIdInspection
@@ -104,9 +101,7 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
       </parent>
       """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
-      assertResolved(m, findPsiFileBlocking(projectPom))
-    }
+    assertResolved(m, findPsiFile(projectPom))
   }
 
   @Test
@@ -131,9 +126,7 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
     val filePath = myIndicesFixture!!.repositoryHelper.getTestDataPath("local1/junit/junit/4.0/junit-4.0.pom")
     val f = LocalFileSystem.getInstance().findFileByPath(filePath)
 
-    withContext(Dispatchers.EDT) {
-      assertResolved(projectPom, findPsiFileBlocking(f))
-    }
+    assertResolved(projectPom, findPsiFile(f))
   }
 
   @Test
@@ -163,9 +156,7 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                                            <version>1</version>
                                            """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
-      assertResolved(projectPom, findPsiFileBlocking(parent))
-    }
+    assertResolved(projectPom, findPsiFile(parent))
   }
 
   @Test
@@ -198,12 +189,10 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </parent>
                        """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
-      moveCaretTo(projectPom, """
-        <parent>
-          <groupId><caret>test</groupId>""".trimIndent())
-      assertResolved(projectPom, findPsiFileBlocking(parent))
-    }
+    moveCaretTo(projectPom, """
+      <parent>
+        <groupId><caret>test</groupId>""".trimIndent())
+    assertResolved(projectPom, findPsiFile(parent))
   }
 
   @Test
@@ -233,9 +222,7 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </parent>
                        """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
-      assertResolved(projectPom, findPsiFileBlocking(parent))
-    }
+    assertResolved(projectPom, findPsiFile(parent))
   }
 
   @Test
@@ -594,7 +581,7 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
 
     importProjectsAsync(projectPom, m)
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -606,15 +593,12 @@ class MavenParentCompletionAndResolutionTest : MavenDomWithIndicesTestCase() {
                        </parent>
                        """.trimIndent())
 
-    withContext(Dispatchers.EDT) {
-      val i = getIntentionAtCaret("Fix Relative Path")
-      assertNotNull(i)
+    val i = getIntentionAtCaret("Fix Relative Path")
+    assertNotNull(i)
+    fixture.launchAction(i!!)
+    val el = getElementAtCaret(projectPom)!!
 
-      fixture.launchAction(i!!)
-      val el = getElementAtCaret(projectPom)!!
-
-      assertEquals("bar/pom.xml", ElementManipulators.getValueText(el))
-    }
+    assertEquals("bar/pom.xml", ElementManipulators.getValueText(el))
   }
 
   @Test

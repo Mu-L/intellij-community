@@ -14,10 +14,11 @@ import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.CustomizedDataContext
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.Comparing
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
@@ -29,23 +30,20 @@ import com.intellij.psi.impl.source.resolve.reference.impl.PsiMultiReference
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.xml.XmlTag
+import com.intellij.psi.xml.XmlTagValue
 import com.intellij.refactoring.rename.PsiElementRenameHandler
 import com.intellij.refactoring.rename.RenameHandler
 import com.intellij.refactoring.rename.RenameHandlerRegistry
 import com.intellij.refactoring.rename.inplace.VariableInplaceRenameHandler
 import com.intellij.refactoring.util.CommonRefactoringUtil.RefactoringErrorHintException
-import com.intellij.testFramework.MapDataContext
-import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.testFramework.fixtures.CodeInsightTestUtil
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.intellij.usages.UsageTargetUtil
-import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.intellij.lang.annotations.Language
-import org.jetbrains.annotations.ApiStatus.Obsolete
 import org.jetbrains.idea.maven.dom.MavenDomElement
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.dom.converters.MavenDependencyCompletionUtil
@@ -92,11 +90,6 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
     }
   }
 
-  @Obsolete
-  protected fun findPsiFileBlocking(f: VirtualFile?): PsiFile {
-    return PsiManager.getInstance(project).findFile(f!!)!!
-  }
-
   protected suspend fun findPsiFile(f: VirtualFile?): PsiFile {
     return readAction { PsiManager.getInstance(project).findFile(f!!)!! }
   }
@@ -127,17 +120,19 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
     configTest(f)
     val editorOffset = getEditorOffset(f)
     MavenLog.LOG.warn("MavenDomTestCase getReferenceAtCaret offset $editorOffset")
-    return readAction { findPsiFileBlocking(f).findReferenceAt(editorOffset) }
+    val psiFile = findPsiFile(f)
+    return readAction { psiFile.findReferenceAt(editorOffset) }
   }
 
   private suspend fun getReferenceAt(f: VirtualFile, offset: Int): PsiReference? {
     configTest(f)
-    return readAction { findPsiFileBlocking(f).findReferenceAt(offset) }
+    val psiFile = findPsiFile(f)
+    return readAction { psiFile.findReferenceAt(offset) }
   }
 
   protected suspend fun getElementAtCaret(f: VirtualFile): PsiElement? {
     configTest(f)
-    return findPsiFileBlocking(f).findElementAt(getEditorOffset(f))
+    return findPsiFile(f).findElementAt(getEditorOffset(f))
   }
 
   protected suspend fun getEditor() = getEditor(projectPom)
@@ -163,7 +158,9 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
     val textOffset = documentText.indexOf(textWithoutCaret)
     assertTrue(textOffset > 0)
     val offset = textOffset + caretOffset
-    getEditor(f).caretModel.moveToOffset(offset)
+    withContext(Dispatchers.EDT) {
+      getEditor(f).caretModel.moveToOffset(offset)
+    }
   }
 
   protected suspend fun getTestPsiFile() = getTestPsiFile(projectPom)
@@ -171,13 +168,6 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   private suspend fun getTestPsiFile(f: VirtualFile): PsiFile {
     configTest(f)
     return fixture.file
-  }
-
-  @Obsolete
-  protected fun findTagBlocking(file: VirtualFile, path: String, clazz: Class<out MavenDomElement> = MavenDomProjectModel::class.java): XmlTag {
-    val model = MavenDomUtil.getMavenDomModel(project, file, clazz)
-    assertNotNull("Model is not of $clazz", model)
-    return MavenDomUtil.findTag(model!!, path)!!
   }
 
   protected suspend fun findTag(path: String): XmlTag {
@@ -189,6 +179,13 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
       val model = MavenDomUtil.getMavenDomModel(project, file, clazz)
       assertNotNull("Model is not of $clazz", model)
       MavenDomUtil.findTag(model!!, path)!!
+    }
+  }
+
+  protected suspend fun findTagValue(file: VirtualFile, path: String, clazz: Class<out MavenDomElement> = MavenDomProjectModel::class.java): XmlTagValue {
+    val tag = findTag(file, path, clazz)
+    return readAction {
+      tag.value
     }
   }
 
@@ -204,16 +201,14 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   protected suspend fun assertUnresolved(file: VirtualFile) {
     val ref = getReferenceAtCaret(file)
     assertNotNull(ref)
-    assertNull(ref!!.resolve())
+    readAction { assertNull(ref!!.resolve()) }
   }
 
   protected suspend fun assertUnresolved(file: VirtualFile, expectedText: String?) {
-    withContext(Dispatchers.EDT) {
-      val ref = getReferenceAtCaret(file)
-      assertNotNull(ref)
-      assertNull(ref!!.resolve())
-      assertEquals(expectedText, ref.canonicalText)
-    }
+    val ref = getReferenceAtCaret(file)
+    assertNotNull(ref)
+    assertNull(ref!!.resolve())
+    assertEquals(expectedText, ref.canonicalText)
   }
 
   protected suspend fun assertResolved(file: VirtualFile, expected: PsiElement) {
@@ -232,7 +227,7 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
     return getReferenceAt(file, index)
   }
 
-  protected suspend fun getReference(file: VirtualFile, referenceText: String, index: Int): PsiReference? {
+  protected suspend fun resolveReference(file: VirtualFile, referenceText: String, index: Int): PsiElement? {
     var index = index
     val text = VfsUtilCore.loadText(file)
     var k = -1
@@ -243,7 +238,8 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
     }
     while (--index >= 0)
 
-    return getReferenceAt(file, k)
+    val psiReference =  getReferenceAt(file, k)!!
+    return readAction { psiReference.resolve() }
   }
 
   protected suspend fun resolveReference(file: VirtualFile, referenceText: String): PsiElement? {
@@ -259,10 +255,8 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   }
 
   protected suspend fun assertResolved(file: VirtualFile, expected: PsiElement, expectedText: String?) {
-    withContext(Dispatchers.EDT) {
-      val ref = doAssertResolved(file, expected)
-      assertEquals(expectedText, ref!!.canonicalText)
-    }
+    val ref = doAssertResolved(file, expected)
+    assertEquals(expectedText, ref!!.canonicalText)
   }
 
   private suspend fun doAssertResolved(file: VirtualFile, expected: PsiElement): PsiReference? {
@@ -397,10 +391,12 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   }
 
   protected suspend fun assertDocumentation(expectedText: String?) {
-    withContext(Dispatchers.EDT) {
-      val originalElement = getElementAtCaret(projectPom)
+    val originalElement = getElementAtCaret(projectPom)
+    val editor = getEditor()
+    val psiFile = getTestPsiFile()
+    readAction {
       val targetElement = DocumentationManager.getInstance(project)
-        .findTargetElement(getEditor(), getTestPsiFile(), originalElement)
+        .findTargetElement(editor, psiFile, originalElement)
 
       val provider = DocumentationManager.getProviderFromElement(targetElement)
       assertEquals(expectedText, provider.generateDoc(targetElement, originalElement))
@@ -417,46 +413,28 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   }
 
   protected suspend fun checkHighlighting(f: VirtualFile) {
-    withContext(Dispatchers.EDT) {
-      MavenLog.LOG.warn("checkHighlighting started")
-      VfsTestUtil.syncRefresh()
-      MavenLog.LOG.warn("checkHighlighting: VFS refreshed")
-      FileDocumentManager.getInstance().saveAllDocuments()
-      UIUtil.dispatchAllInvocationEvents()
-
-      val psiFile = findPsiFileBlocking(f)
-
-      val document = fixture.getDocument(psiFile)
-      if (null == document) {
-        MavenLog.LOG.warn("checkHighlighting: document is null")
-      }
-      else {
-        FileDocumentManager.getInstance().reloadFromDisk(document)
-        MavenLog.LOG.warn("checkHighlighting: document reloaded from disk")
-      }
-
-      configTest(f)
-      MavenLog.LOG.warn("checkHighlighting: test configured")
-
-      try {
-        UIUtil.dispatchAllInvocationEvents()
+    MavenLog.LOG.warn("checkHighlighting started")
+    configTest(f)
+    MavenLog.LOG.warn("checkHighlighting: test configured")
+    try {
+      withContext(Dispatchers.EDT) {
         fixture.testHighlighting(true, false, true, f)
       }
-      catch (throwable: Throwable) {
-        MavenLog.LOG.error("Exception during highlighting", throwable)
-        val cause1 = throwable.cause
-        if (null != cause1) {
-          MavenLog.LOG.error("Cause 1", cause1)
-          val cause2 = cause1.cause
-          if (null != cause2) {
-            MavenLog.LOG.error("Cause 2", cause2)
-          }
+    }
+    catch (throwable: Throwable) {
+      MavenLog.LOG.error("Exception during highlighting", throwable)
+      val cause1 = throwable.cause
+      if (null != cause1) {
+        MavenLog.LOG.error("Cause 1", cause1)
+        val cause2 = cause1.cause
+        if (null != cause2) {
+          MavenLog.LOG.error("Cause 2", cause2)
         }
-        throw RuntimeException(throwable)
       }
-      finally {
-        MavenLog.LOG.warn("checkHighlighting finished")
-      }
+      throw RuntimeException(throwable)
+    }
+    finally {
+      MavenLog.LOG.warn("checkHighlighting finished")
     }
   }
 
@@ -476,18 +454,16 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
     }
   }
 
-  protected suspend fun assertRenameResult(value: String?, expectedXml: String?) {
+  protected suspend fun assertRenameResult(value: String, expectedXml: String?) {
     doRename(projectPom, value)
     assertEquals(createPomXml(expectedXml), getTestPsiFile(projectPom).text)
   }
 
-  protected suspend fun doRename(f: VirtualFile, value: String?) {
-    withContext(Dispatchers.EDT) {
-      val context = createRenameDataContext(f, value)
-      val renameHandler = RenameHandlerRegistry.getInstance().getRenameHandler(context)
-      assertNotNull(renameHandler)
-      invokeRename(context, renameHandler)
-    }
+  protected suspend fun doRename(f: VirtualFile, value: String) {
+    val context = createRenameDataContext(f, value)
+    val renameHandler = readAction { RenameHandlerRegistry.getInstance().getRenameHandler(context) }
+    assertNotNull(renameHandler)
+    invokeRename(context, renameHandler!!)
   }
 
   protected suspend fun doInlineRename(f: VirtualFile, value: String) {
@@ -503,42 +479,37 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   }
 
   protected suspend fun assertCannotRename() {
+    val context = createRenameDataContext(projectPom, "new name")
+    val handler = readAction { RenameHandlerRegistry.getInstance().getRenameHandler(context) }
+    if (null == handler) return
+    try {
+      invokeRename(context, handler)
+    }
+    catch (e: RefactoringErrorHintException) {
+      if (!e.message!!.startsWith("Cannot perform refactoring.")) {
+        throw e
+      }
+    }
+  }
+
+  private suspend fun invokeRename(context: DataContext, renameHandler: RenameHandler) {
     withContext(Dispatchers.EDT) {
-      val context = createRenameDataContext(projectPom, "new name")
-      val handler = RenameHandlerRegistry.getInstance().getRenameHandler(context)
-      if (handler == null) return@withContext
-      try {
-        invokeRename(context, handler)
-      }
-      catch (e: RefactoringErrorHintException) {
-        if (!e.message!!.startsWith("Cannot perform refactoring.")) {
-          throw e
-        }
-      }
+      renameHandler.invoke(project, PsiElement.EMPTY_ARRAY, context)
     }
   }
 
-  private fun invokeRename(context: MapDataContext, renameHandler: RenameHandler?) {
-    renameHandler!!.invoke(project, PsiElement.EMPTY_ARRAY, context)
-  }
-
-  private suspend fun createDataContext(f: VirtualFile): MapDataContext {
-    val context = MapDataContext()
-
+  private suspend fun createRenameDataContext(f: VirtualFile, value: String?): DataContext {
     val editor = getEditor(f)
-    context.put(CommonDataKeys.EDITOR, editor)
-    context.put(CommonDataKeys.PSI_FILE, getTestPsiFile(f))
-    val targetElement = readAction {
-      TargetElementUtil.findTargetElement(editor, TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED or TargetElementUtil.ELEMENT_NAME_ACCEPTED)
+    val psiFile = getTestPsiFile(f)
+    val context = CustomizedDataContext.withSnapshot(DataContext.EMPTY_CONTEXT) { sink ->
+      sink[CommonDataKeys.EDITOR] = editor
+      sink[PsiElementRenameHandler.DEFAULT_NAME] = value
+      sink.lazy(CommonDataKeys.PSI_FILE) { psiFile }
+      sink.lazy(CommonDataKeys.PSI_ELEMENT) {
+        TargetElementUtil.findTargetElement(
+          editor, TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED or TargetElementUtil.ELEMENT_NAME_ACCEPTED)
+      }
     }
-    context.put(CommonDataKeys.PSI_ELEMENT, targetElement)
-
-    return context
-  }
-
-  private suspend fun createRenameDataContext(f: VirtualFile, value: String?): MapDataContext {
-    val context = createDataContext(f)
-    context.put(PsiElementRenameHandler.DEFAULT_NAME, value)
     return context
   }
 
@@ -551,11 +522,14 @@ abstract class MavenDomTestCase : MavenMultiVersionImportingTestCase() {
   }
 
   protected suspend fun search(file: VirtualFile): List<PsiElement> {
-    val context = createDataContext(file)
+    val editor = getEditor(file)
+    val psiFile = getTestPsiFile(file)
     return readAction {
-      val targets = UsageTargetUtil.findUsageTargets { dataId: String? -> context.getData(dataId!!) }
-      val target = (targets[0] as PsiElement2UsageTargetAdapter).element
-      val result: List<PsiReference> = ArrayList(ReferencesSearch.search(target).findAll())
+      val psiElement = TargetElementUtil.findTargetElement(
+        editor, TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED or TargetElementUtil.ELEMENT_NAME_ACCEPTED)
+      val targets = UsageTargetUtil.findUsageTargets(editor, psiFile, psiElement)
+      val target = (targets?.firstOrNull() as? PsiElement2UsageTargetAdapter)?.element ?: return@readAction emptyList()
+      val result = ArrayList(ReferencesSearch.search(target).findAll())
       result.map { it.element }
     }
   }

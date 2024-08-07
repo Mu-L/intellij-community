@@ -30,8 +30,7 @@ internal sealed class EdtCoroutineDispatcher : MainCoroutineDispatcher() {
     check(!context.isRunBlockingUnderReadAction()) {
       "Switching to Dispatchers.EDT from `runBlockingCancellable` inside in a read-action leads to possible deadlock."
     }
-    val state = context.contextModality()
-                ?: ModalityState.nonModal() // dispatch with NON_MODAL by default
+    val state = context.effectiveContextModality()
     val runnable = if (state === ModalityState.any()) {
       ContextAwareRunnable(block::run)
     }
@@ -55,10 +54,16 @@ internal sealed class EdtCoroutineDispatcher : MainCoroutineDispatcher() {
       // (e.g., one coroutine emits a value into a flow and another collects it).
       // If the context modality is lower than the current modality,
       // we need to dispatch and postpone its execution.
-      return !EDT.isCurrentThreadEdt() ||
-             context.contextModality()?.let { contextModality -> ModalityState.current().dominates(contextModality) } == true
+      if (!EDT.isCurrentThreadEdt()) return true
+      val contextModality = context.effectiveContextModality()
+      // If the context modality is explicitly any(), then no dispatch is performed,
+      // as dominates(any()) always returns false, no special any() handling required here.
+      return ModalityState.current().dominates(contextModality)
     }
 
     override fun toString(): String = "Dispatchers.EDT.immediate"
   }
 }
+
+private fun CoroutineContext.effectiveContextModality(): ModalityState =
+  contextModality() ?: ModalityState.nonModal() // dispatch with NON_MODAL by default
