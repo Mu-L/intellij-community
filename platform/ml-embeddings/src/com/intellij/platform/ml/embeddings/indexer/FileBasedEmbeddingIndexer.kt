@@ -44,6 +44,9 @@ class FileBasedEmbeddingIndexer(private val cs: CoroutineScope) : Disposable {
     IndexBasedEmbeddingEntitiesIndexer(indexerScope)
   else VFSBasedEmbeddingEntitiesIndexer(indexerScope)
 
+  private val triggerIndexingOnSearch
+    get() = Registry.`is`("intellij.platform.ml.embeddings.trigger.indexing.on.search")
+
   init {
     Disposer.register(this, entitiesIndexer)
   }
@@ -73,6 +76,7 @@ class FileBasedEmbeddingIndexer(private val cs: CoroutineScope) : Disposable {
   }
 
   suspend fun triggerIndexing(project: Project) {
+    if (!triggerIndexingOnSearch) return
     var shouldIndex = false
     jobsMutex.withLock {
       if (project !in indexedProjects) {
@@ -88,31 +92,33 @@ class FileBasedEmbeddingIndexer(private val cs: CoroutineScope) : Disposable {
   private suspend fun indexProject(project: Project) {
     project.waitForSmartMode()
     logger.debug { "Started full project embedding indexing" }
-    SEMANTIC_SEARCH_TRACER.spanBuilder(INDEXING_SPAN_NAME).useWithScope {
-      startIndexingSession(project)
-      try {
+    try {
+      SEMANTIC_SEARCH_TRACER.spanBuilder(INDEXING_SPAN_NAME).useWithScope {
         val projectIndexingStartTime = System.nanoTime()
+        startIndexingSession(project)
         val settings = EmbeddingIndexSettingsImpl.getInstance()
         if (settings.shouldIndexAnythingFileBased) {
           entitiesIndexer.index(project, settings)
         }
+        finishIndexingSession(project)
         EmbeddingSearchLogger.indexingFinished(project, forActions = false, TimeoutUtil.getDurationMillis(projectIndexingStartTime))
       }
-      finally {
-        finishIndexingSession(project)
-      }
+    }
+    catch (e: Exception) {
+      logger.warn("Embedding indexing failed", e)
+      throw e
     }
     logger.debug { "Finished full project embedding indexing" }
   }
 
   private suspend fun startIndexingSession(project: Project) {
-    for (indexId in FILE_BASED_INDICES) {
+    for (indexId in FILE_BASED_INDICES.filter { it.isEnabled() }) {
       getStorageManagerWrapper(indexId).startIndexingSession(project)
     }
   }
 
   private suspend fun finishIndexingSession(project: Project) {
-    for (indexId in FILE_BASED_INDICES) {
+    for (indexId in FILE_BASED_INDICES.filter { it.isEnabled() }) {
       getStorageManagerWrapper(indexId).finishIndexingSession(project)
     }
   }
@@ -122,7 +128,7 @@ class FileBasedEmbeddingIndexer(private val cs: CoroutineScope) : Disposable {
 
     internal const val INDEXING_VERSION = "0.0.1"
 
-    val FILE_BASED_INDICES = arrayOf(IndexId.FILES, IndexId.CLASSES, IndexId.SYMBOLS)
+    val FILE_BASED_INDICES: Array<IndexId> = arrayOf(IndexId.FILES, IndexId.CLASSES, IndexId.SYMBOLS)
 
     private val logger = Logger.getInstance(FileBasedEmbeddingIndexer::class.java)
 

@@ -8,8 +8,10 @@ import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsListe
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionUsageTracker
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionUsageTracker.ShownEvents.FinishType
 import com.intellij.codeInsight.inline.completion.session.InlineCompletionContext
+import com.intellij.codeInsight.inline.completion.session.InlineCompletionInvalidationListener
 import com.intellij.codeInsight.inline.completion.session.InlineCompletionSession
 import com.intellij.codeInsight.inline.completion.session.InlineCompletionSessionManager
+import com.intellij.codeInsight.inline.completion.session.InlineCompletionSessionManager.UpdateSessionResult
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionSuggestion
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariant
 import com.intellij.codeInsight.inline.completion.suggestion.InlineCompletionVariantsComputer
@@ -65,10 +67,15 @@ class InlineCompletionHandler(
 
   private val completionState = InlineCompletionState()
 
+  private val invalidationListeners = EventDispatcher.create(InlineCompletionInvalidationListener::class.java)
+
   init {
     addEventListener(InlineCompletionUsageTracker.Listener()) // todo remove
-    addEventListener(InlineCompletionLogsListener(editor))
     InlineCompletionOnboardingListener.createIfOnboarding(editor)?.let(::addEventListener)
+
+    val logsListener = InlineCompletionLogsListener(editor)
+    addEventListener(logsListener)
+    invalidationListeners.addListener(logsListener)
   }
 
   fun addEventListener(listener: InlineCompletionEventListener) {
@@ -145,6 +152,7 @@ class InlineCompletionHandler(
     ThreadingAssertions.assertWriteAccess()
 
     val session = InlineCompletionSession.getOrNull(editor) ?: return
+    val providerId = session.provider.id
     val context = session.context
     val offset = context.startOffset() ?: return
     traceBlocking(InlineCompletionEventType.Insert)
@@ -163,6 +171,9 @@ class InlineCompletionHandler(
     traceBlocking(InlineCompletionEventType.AfterInsert)
 
     LookupManager.getActiveLookup(editor)?.hideLookup(false) //TODO: remove this
+
+    // The session is completely destroyed at this moment, so it's safe to send a new event
+    invokeEvent(InlineCompletionEvent.SuggestionInserted(editor, providerId))
   }
 
   @RequiresEdt
@@ -273,7 +284,7 @@ class InlineCompletionHandler(
       invokeEvent(event)
     }
     else if (!completionState.ignoreDocumentChanges) {
-      sessionManager.invalidate()
+      sessionManager.invalidate(UpdateSessionResult.Invalidated.Reason.UnclassifiedDocumentChange)
     }
   }
 
@@ -354,7 +365,7 @@ class InlineCompletionHandler(
 
     return InlineCompletionProvider.extensions().firstOrNull {
       try {
-        it.isEnabled(event)
+        it.isEnabledConsideringEventRequirements(event)
       }
       catch (e: Throwable) {
         LOG.errorIfNotMessage(e)
@@ -363,6 +374,13 @@ class InlineCompletionHandler(
     }?.also {
       LOG.trace("Selected inline provider: $it")
     }
+  }
+
+  private fun InlineCompletionProvider.isEnabledConsideringEventRequirements(event: InlineCompletionEvent): Boolean {
+    if (event is InlineCompletionEvent.WithSpecificProvider && event.providerId != this@isEnabledConsideringEventRequirements.id) {
+      return false
+    }
+    return isEnabled(event)
   }
 
   private suspend fun ensureDocumentAndFileSynced(project: Project, document: Document) {
@@ -396,19 +414,37 @@ class InlineCompletionHandler(
 
   private fun createSessionManager(): InlineCompletionSessionManager {
     return object : InlineCompletionSessionManager() {
-      override fun onUpdate(session: InlineCompletionSession, event: InlineCompletionEvent?, result: UpdateSessionResult) {
+      override fun onUpdate(session: InlineCompletionSession, result: UpdateSessionResult) {
         ThreadingAssertions.assertEventDispatchThread()
         when (result) {
-          UpdateSessionResult.Invalidated -> hide(session.context, event.getInvalidationFinishType())
           UpdateSessionResult.Emptied -> hide(session.context, FinishType.TYPED)
           UpdateSessionResult.Succeeded -> Unit
+          is UpdateSessionResult.Invalidated -> {
+            val finishType = result.getInvalidationFinishType()
+            if (finishType == FinishType.INVALIDATED) {
+              when (val reason = result.reason) {
+                is UpdateSessionResult.Invalidated.Reason.Event -> {
+                  invalidationListeners.multicaster.onInvalidatedByEvent(reason.event)
+                }
+                UpdateSessionResult.Invalidated.Reason.UnclassifiedDocumentChange -> {
+                  invalidationListeners.multicaster.onInvalidatedByUnclassifiedDocumentChange()
+                }
+              }
+            }
+            hide(session.context, finishType)
+          }
         }
       }
 
-      private fun InlineCompletionEvent?.getInvalidationFinishType(): FinishType {
-        return when (this) {
-          is InlineCompletionEvent.Backspace -> FinishType.BACKSPACE_PRESSED
-          else -> FinishType.INVALIDATED
+      private fun UpdateSessionResult.Invalidated.getInvalidationFinishType(): FinishType {
+        return when (reason) {
+          is UpdateSessionResult.Invalidated.Reason.Event -> {
+            when (reason.event) {
+              is InlineCompletionEvent.Backspace -> FinishType.BACKSPACE_PRESSED
+              else -> FinishType.INVALIDATED
+            }
+          }
+          UpdateSessionResult.Invalidated.Reason.UnclassifiedDocumentChange -> FinishType.INVALIDATED
         }
       }
     }

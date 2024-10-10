@@ -8395,11 +8395,6 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/freeCompilerArgsWithSupress.gradle.kts");
             }
 
-            @TestMetadata("insideAndroid.gradle.kts")
-            public void testInsideAndroid_gradle() throws Exception {
-                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/insideAndroid.gradle.kts");
-            }
-
             @TestMetadata("javaVersion10.gradle.kts")
             public void testJavaVersion10_gradle() throws Exception {
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/javaVersion10.gradle.kts");
@@ -8483,6 +8478,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("optionsBeforeDot.gradle.kts")
             public void testOptionsBeforeDot_gradle() throws Exception {
                 runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/optionsBeforeDot.gradle.kts");
+            }
+
+            @TestMetadata("settings.gradle.kts")
+            public void testSettings_gradle() throws Exception {
+                runTest("testData/inspectionsLocal/kotlinOptionsToCompilerOptions/settings.gradle.kts");
             }
 
             @TestMetadata("subprojects.gradle.kts")

@@ -58,6 +58,7 @@ abstract class AbstractEmbeddingsStorageWrapper(
     accessTime.set(System.nanoTime())
     if (isEnabled()) {
       indexLoadingMutex.withLock {
+        if (!EmbeddingIndexMemoryManager.getInstance().checkCanAddEntry()) return@withLock
         load()
         index.addEntries(values)
       }
@@ -78,6 +79,7 @@ abstract class AbstractEmbeddingsStorageWrapper(
 
   override suspend fun startIndexingSession() {
     accessTime.set(System.nanoTime())
+    EmbeddingIndexMemoryManager.getInstance().registerIndex(index)
     if (isEnabled()) {
       index.onIndexingStart()
     }
@@ -87,6 +89,12 @@ abstract class AbstractEmbeddingsStorageWrapper(
     accessTime.set(System.nanoTime())
     if (isEnabled()) {
       index.onIndexingFinish()
+      indexLoadingMutex.withLock {
+        if (isIndexLoaded) {
+          index.saveToDisk()
+          isIndexLoaded = false
+        }
+      }
     }
   }
 
@@ -161,14 +169,10 @@ abstract class AbstractEmbeddingsStorageWrapper(
 
   private fun getIndexPersistedEventsCounter(project: Project) = IndexPersistedEventsCounter.EP_NAME.getExtensions(project).firstOrNull()
 
-  fun registerInMemoryManager() {
-    EmbeddingIndexMemoryManager.getInstance().registerIndex(index)
-  }
-
   companion object {
     private val OFFLOAD_TIMEOUT = 10.seconds
     private val logger = Logger.getInstance(AbstractEmbeddingsStorageWrapper::class.java)
 
-    const val OLD_API_DIR_NAME = "old-api"
+    const val OLD_API_DIR_NAME: String = "old-api"
   }
 }

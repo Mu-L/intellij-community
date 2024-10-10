@@ -1,5 +1,46 @@
 import org.jetbrains.annotations.*;
 import java.util.List;
+import java.util.Random;
+
+@NotNullByDefault
+class FromDemo {
+  native <T extends Number> T get();
+
+  public void test() {
+    Object o = new FromDemo().get();
+    if (<warning descr="Condition 'o == null' is always 'false'">o == null</warning>) {
+      System.out.println("1");
+    }
+  }
+
+  native <T extends Number> T get2();
+
+  public void test2() {
+    Object o = new FromDemo().get2();
+    if (<warning descr="Condition 'o == null' is always 'false'">o == null</warning>) {
+      System.out.println("1");
+    }
+  }
+
+  <T extends @Nullable Object> T oneOfTwo(T t1, T t2) {
+    return new Random().nextBoolean() ? t1 : t2;
+  }
+
+  public void test(@Nullable Integer t1, @Nullable Integer t2) {
+    Integer o = new FromDemo().oneOfTwo(t1, t2);
+    // TODO: should not warn
+    if (<warning descr="Condition 'o == null' is always 'false'">o == null</warning>) {
+      System.out.println("1");
+    }
+  }
+
+  public void test2(Object t1, Object t2) {
+    Object o = new FromDemo().oneOfTwo(t1, t2);
+    if (<warning descr="Condition 'o == null' is always 'false'">o == null</warning>) {
+      System.out.println("1");
+    }
+  }
+}
 
 @NotNullByDefault
 public class JetBrainsNotNullByDefault {
@@ -112,5 +153,34 @@ class Test2{
     if(<warning descr="Condition 'test2 != null' is always 'true'">test2 != null</warning>) {
       System.out.println("1");
     }
+  }
+}
+
+class InheritNotNullByDefault {
+  static class StaticInner implements NullableMember {
+
+    @Override
+    public String get(String s) {
+      if(<warning descr="Condition 's == null' is always 'false'">s == null</warning>) {
+        return null;
+
+      }
+      return <warning descr="'null' is returned by the method declared as @NotNullByDefault">null</warning>;
+
+    }
+
+    public static void main(String[] args) {
+      final StaticInner staticInner = new StaticInner();
+      final String s = staticInner.get("1");
+      if(<warning descr="Condition 's == null' is always 'false'">s == null</warning>) {
+        System.out.println("null");
+      }
+      final String s1 = staticInner.get(<warning descr="Passing 'null' argument to parameter annotated as @NotNull">null</warning>);
+    }
+  }
+
+  @NotNullByDefault
+  interface NullableMember {
+    String get(String s);
   }
 }

@@ -13,6 +13,7 @@ import com.intellij.ide.structureView.logical.LogicalStructureTreeElementProvide
 import com.intellij.ide.structureView.logical.PropertyElementProvider
 import com.intellij.ide.structureView.logical.model.LogicalContainerPresentationProvider
 import com.intellij.ide.structureView.logical.model.LogicalModelPresentationProvider
+import com.intellij.ide.structureView.logical.model.ExtendedLogicalObject
 import com.intellij.ide.structureView.logical.model.LogicalStructureAssembledModel
 import com.intellij.ide.util.treeView.smartTree.TreeElement
 import com.intellij.navigation.ItemPresentation
@@ -21,10 +22,12 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiTarget
 import com.intellij.ui.SimpleTextAttributes
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.Icon
 
-internal class LogicalStructureViewModel private constructor(psiFile: PsiFile, editor: Editor?, assembledModel: LogicalStructureAssembledModel<*>, elementBuilder: ElementsBuilder)
+@ApiStatus.Internal
+class LogicalStructureViewModel private constructor(psiFile: PsiFile, editor: Editor?, assembledModel: LogicalStructureAssembledModel<*>, elementBuilder: ElementsBuilder)
   : StructureViewModelBase(psiFile, editor, elementBuilder.createViewTreeElement(assembledModel)),
     StructureViewModel.ElementInfoProvider, StructureViewModel.ExpandInfoProvider, StructureViewModel.ActionHandler {
 
@@ -33,7 +36,7 @@ internal class LogicalStructureViewModel private constructor(psiFile: PsiFile, e
 
 
   override fun isAlwaysShowsPlus(element: StructureViewTreeElement?): Boolean {
-    return element is ElementsBuilder.LogicalGroupStructureElement
+    return element is ElementsBuilder.LogicalGroupStructureElement<*>
   }
 
   override fun isAlwaysLeaf(element: StructureViewTreeElement?): Boolean {
@@ -54,8 +57,8 @@ internal class LogicalStructureViewModel private constructor(psiFile: PsiFile, e
 
   private fun getModel(element: StructureViewTreeElement): Any? {
     return when (element) {
+      is ElementsBuilder.LogicalGroupStructureElement<*> -> element.grouper
       is LogicalStructureViewTreeElement<*> -> element.getLogicalAssembledModel().model
-      is ElementsBuilder.LogicalGroupStructureElement -> element.grouper
       else -> null
     }
   }
@@ -66,12 +69,18 @@ interface LogicalStructureViewTreeElement<T> : StructureViewTreeElement {
 
   fun getLogicalAssembledModel(): LogicalStructureAssembledModel<T>
 
+  /**
+   * Means that the element is not the node for logical object itself but it's a child which has no own logical object
+   */
+  @ApiStatus.Internal
+  fun isHasNoOwnLogicalModel(): Boolean = false
+
 }
 
 private class ElementsBuilder {
 
   private val typePresentationService = TypePresentationService.getService()
-  private val groupElements: MutableMap<LogicalStructureAssembledModel<*>, MutableMap<ExternalElementsProvider<*, *>, LogicalGroupStructureElement>> = ConcurrentHashMap()
+  private val groupElements: MutableMap<LogicalStructureAssembledModel<*>, MutableMap<ExternalElementsProvider<*, *>, LogicalGroupStructureElement<*>>> = ConcurrentHashMap()
 
   fun <T> createViewTreeElement(assembledModel: LogicalStructureAssembledModel<T>): StructureViewTreeElement {
     val model = assembledModel.model
@@ -172,10 +181,9 @@ private class ElementsBuilder {
     while (parentTmp != null) {
       val first = parentTmp.model
       val second = assembledModel.model
-      if (first == second) return true
-      if (first is PsiTarget && second is PsiTarget) {
-        if (first.isValid && second.isValid && first.navigationElement == second.navigationElement) return true
-      }
+      if (first is ExtendedLogicalObject && first.logicalEquals(second)
+          || second is ExtendedLogicalObject && second.logicalEquals(first)
+          || first == second) return true
       parentTmp = parentTmp.parent
     }
     return false
@@ -234,11 +242,11 @@ private class ElementsBuilder {
     }
   }
 
-  inner class LogicalGroupStructureElement(
-    val parentAssembledModel: LogicalStructureAssembledModel<*>,
+  inner class LogicalGroupStructureElement<T>(
+    val parentAssembledModel: LogicalStructureAssembledModel<T>,
     val grouper: Any,
     private val childrenModelsProvider: () -> List<LogicalStructureAssembledModel<*>>,
-  ) : StructureViewTreeElement {
+  ) : LogicalStructureViewTreeElement<T> {
 
     private val cashedChildren: Array<TreeElement> by lazy {
       calculateChildren()
@@ -246,7 +254,21 @@ private class ElementsBuilder {
 
     override fun getValue(): Any = grouper
 
-    override fun getPresentation(): ItemPresentation = getPresentationData(grouper)
+    override fun getPresentation(): ItemPresentation {
+      if (grouper is ContainerElementsProvider<*, *>) {
+        val presentationProvider = LogicalContainerPresentationProvider.getForObject(grouper)
+        if (presentationProvider != null) {
+          val coloredText = presentationProvider.getColoredText(parentAssembledModel.model!!)
+          val presentationData = PresentationData()
+          if (coloredText.isNotEmpty()) {
+            coloredText.forEach(presentationData::addText)
+            presentationData.setIcon(presentationProvider.getIcon(grouper))
+            return presentationData
+          }
+        }
+      }
+      return getPresentationData(grouper)
+    }
 
     override fun getChildren(): Array<TreeElement> {
       if (grouper is ExternalElementsProvider<*, *>) {
@@ -259,8 +281,12 @@ private class ElementsBuilder {
       return childrenModelsProvider().map { createViewTreeElement(it) }.toTypedArray()
     }
 
+    override fun getLogicalAssembledModel(): LogicalStructureAssembledModel<T> = parentAssembledModel
+
+    override fun isHasNoOwnLogicalModel(): Boolean = true
+
     override fun equals(other: Any?): Boolean {
-      if (other !is LogicalGroupStructureElement) return false
+      if (other !is LogicalGroupStructureElement<*>) return false
       return parentAssembledModel == other.parentAssembledModel && grouper == other.grouper
     }
 

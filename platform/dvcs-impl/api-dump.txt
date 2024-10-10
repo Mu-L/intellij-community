@@ -23,7 +23,7 @@ f:com.intellij.dvcs.DvcsUtil
 - <init>():V
 - s:addMappingIfSubRoot(com.intellij.openapi.project.Project,java.lang.String,java.lang.String):V
 - s:assertFileExists(java.io.File,java.lang.String):V
-- s:disableActionIfAnyRepositoryIsFresh(com.intellij.openapi.actionSystem.AnActionEvent,java.util.List,java.lang.String):V
+- s:disableActionIfAnyRepositoryIsFresh(com.intellij.openapi.actionSystem.AnActionEvent,java.util.Collection,java.lang.String):V
 - s:ensureAllChildrenInVfs(com.intellij.openapi.vfs.VirtualFile):V
 - s:findVcsRootFor(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vfs.VirtualFile
 - s:findVirtualFilesWithRefresh(java.util.List):java.util.List
@@ -120,6 +120,7 @@ a:com.intellij.dvcs.branch.DvcsBranchManager
 com.intellij.dvcs.branch.DvcsBranchManager$DvcsBranchManagerListener
 - branchFavoriteSettingsChanged():V
 - branchGroupingSettingsChanged(com.intellij.dvcs.branch.GroupingKey,Z):V
+- showTagsSettingsChanged(Z):V
 a:com.intellij.dvcs.branch.DvcsBranchPopup
 - pf:myCurrentRepository:com.intellij.dvcs.repo.Repository
 - pf:myInSpecificRepository:Z
@@ -608,7 +609,7 @@ a:com.intellij.dvcs.ui.DvcsCloneDialogComponent
 - doValidateAll():java.util.List
 - f:getDirectory():java.lang.String
 - pf:getErrorComponent():com.intellij.util.ui.components.BorderLayoutPanel
-- pf:getMainPanel():javax.swing.JPanel
+- pf:getMainPanel():com.intellij.openapi.ui.DialogPanel
 - getPreferredFocusedComponent():javax.swing.JComponent
 - f:getProject():com.intellij.openapi.project.Project
 - pf:getRememberedInputs():com.intellij.dvcs.DvcsRememberedInputs

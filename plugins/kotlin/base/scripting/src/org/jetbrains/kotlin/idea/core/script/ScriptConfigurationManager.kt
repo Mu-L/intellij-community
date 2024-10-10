@@ -40,7 +40,7 @@ import kotlin.script.experimental.api.makeFailureResult
 internal class IdeScriptDependenciesProvider(project: Project) : ScriptConfigurationsProvider(project) {
     override fun getScriptConfigurationResult(file: KtFile): ScriptCompilationConfigurationResult? {
         val configuration = getScriptConfiguration(file)
-        val reports = IdeScriptReportSink.getReports(file)
+        val reports = getScriptReports(file)
         if (configuration == null && reports.isNotEmpty()) {
             return makeFailureResult(reports)
         }
@@ -70,14 +70,6 @@ interface ScriptConfigurationManager : ScriptDependencyAware {
      * May return null even configuration was loaded but was not yet applied.
      */
     fun getConfiguration(file: KtFile): ScriptCompilationConfigurationWrapper?
-
-    @Deprecated("Use getScriptClasspath(KtFile) instead")
-    fun getScriptClasspath(file: VirtualFile): List<VirtualFile>
-
-    /**
-     * @see [getConfiguration]
-     */
-    fun getScriptClasspath(file: KtFile): List<VirtualFile>
 
     /**
      * Check if configuration is already cached for [file] (in cache or FileAttributes).
