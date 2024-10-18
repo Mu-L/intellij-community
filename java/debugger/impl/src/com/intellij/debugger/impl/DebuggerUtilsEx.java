@@ -123,7 +123,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return null;
   }
 
-
+  @Deprecated
   public static boolean isAssignableFrom(@NotNull String baseQualifiedName, @NotNull Type checkedType) {
     if (checkedType instanceof ReferenceType) {
       if (CommonClassNames.JAVA_LANG_OBJECT.equals(baseQualifiedName)) {
@@ -134,6 +134,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return baseQualifiedName.equals(checkedType.name());
   }
 
+  @Deprecated
   public static ReferenceType getSuperClass(@NotNull final String baseQualifiedName, @NotNull ReferenceType checkedType) {
     if (baseQualifiedName.equals(checkedType.name())) {
       return checkedType;
@@ -391,13 +392,21 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     ui.selectAndFocus(content, true, true);
   }
 
-  public static StringReference mirrorOfString(@NotNull String s, @NotNull EvaluationContextImpl context)
+  public static StringReference mirrorOfString(@NotNull String s, @NotNull EvaluationContext context)
     throws EvaluateException {
-    return mirrorOfString(s, context.getVirtualMachineProxy(), context);
+    SuspendContext suspendContext = context.getSuspendContext();
+    if (suspendContext instanceof SuspendContextImpl suspendContextImpl) {
+      return mirrorOfString(s, suspendContextImpl.getVirtualMachineProxy(), context);
+    }
+    else { // should never happen, just in case
+      LOG.error("Unexpected suspendContext type: " + suspendContext.getClass().getName());
+      //noinspection UsagesOfObsoleteApi
+      return ((VirtualMachineProxyImpl)context.getDebugProcess().getVirtualMachineProxy()).mirrorOf(s);
+    }
   }
 
   /**
-   * @deprecated use {@link #mirrorOfString(String, EvaluationContextImpl)}
+   * @deprecated use {@link #mirrorOfString(String, EvaluationContext)}
    */
   @Deprecated
   public static StringReference mirrorOfString(@NotNull String s, VirtualMachineProxyImpl virtualMachineProxy, EvaluationContext context)
@@ -508,7 +517,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   public static ThreeState getEffectiveAssertionStatus(@NotNull Location location) {
     ReferenceType type = location.declaringType();
     if (type instanceof ClassType) {
-      Field field = type.fieldByName("$assertionsDisabled");
+      Field field = DebuggerUtils.findField(type, "$assertionsDisabled");
       if (field != null && field.isStatic() && field.isSynthetic()) {
         Value value = type.getValue(field);
         if (value instanceof BooleanValue) {
@@ -1178,15 +1187,15 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
 
   @NotNull
-  public static Location findOrCreateLocation(DebugProcessImpl debugProcess, StackTraceElement stackTraceElement) {
-    return findOrCreateLocation(debugProcess, debugProcess.getVirtualMachineProxy()::classesByName, stackTraceElement);
+  public static Location findOrCreateLocation(@NotNull VirtualMachine virtualMachine, StackTraceElement stackTraceElement) {
+    return findOrCreateLocation(virtualMachine, virtualMachine::classesByName, stackTraceElement);
   }
 
   @NotNull
-  public static Location findOrCreateLocation(DebugProcessImpl debugProcess,
+  public static Location findOrCreateLocation(@NotNull VirtualMachine virtualMachine,
                                               @NotNull ClassesByNameProvider classesByName,
                                               StackTraceElement stackTraceElement) {
-    return findOrCreateLocation(debugProcess,
+    return findOrCreateLocation(virtualMachine,
                                 classesByName,
                                 stackTraceElement.getClassName(),
                                 stackTraceElement.getMethodName(),
@@ -1194,22 +1203,22 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
 
   @NotNull
-  public static Location findOrCreateLocation(DebugProcessImpl debugProcess,
+  public static Location findOrCreateLocation(@NotNull VirtualMachine virtualMachine,
                                               @NotNull String className,
                                               @NotNull String methodName,
                                               int line) {
-    return findOrCreateLocation(debugProcess, debugProcess.getVirtualMachineProxy()::classesByName, className, methodName, line);
+    return findOrCreateLocation(virtualMachine, virtualMachine::classesByName, className, methodName, line);
   }
 
   @NotNull
-  public static Location findOrCreateLocation(DebugProcessImpl debugProcess,
+  public static Location findOrCreateLocation(@NotNull VirtualMachine virtualMachine,
                                               @NotNull ClassesByNameProvider classesByName,
                                               @NotNull String className,
                                               @NotNull String methodName,
                                               int line) {
     ReferenceType classType = ContainerUtil.getFirstItem(classesByName.get(className));
     if (classType == null) {
-      classType = new GeneratedReferenceType(debugProcess.getVirtualMachineProxy().getVirtualMachine(), className);
+      classType = new GeneratedReferenceType(virtualMachine, className);
     }
     else if (line >= 0) {
       for (Method method : declaredMethodsByName(classType, methodName)) {

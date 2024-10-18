@@ -118,7 +118,8 @@ public final class AsyncStacksUtils {
             String className = dis.readUTF();
             String methodName = dis.readUTF();
             int line = dis.readInt();
-            Location location = DebuggerUtilsEx.findOrCreateLocation(process, classesByName, className, methodName, line);
+            Location location =
+              DebuggerUtilsEx.findOrCreateLocation(virtualMachineProxy.getVirtualMachine(), classesByName, className, methodName, line);
             item = new StackFrameItem(location, null);
           }
           res.add(item);
@@ -179,7 +180,7 @@ public final class AsyncStacksUtils {
       public void processClassPrepare(DebugProcess debuggerProcess, ReferenceType referenceType) {
         try {
           requestsManager.deleteRequest(this);
-          ((ClassType)referenceType).setValue(referenceType.fieldByName("DEBUG"), process.getVirtualMachineProxy().mirrorOf(true));
+          ((ClassType)referenceType).setValue(DebuggerUtils.findField(referenceType, "DEBUG"), process.getVirtualMachineProxy().mirrorOf(true));
         }
         catch (Exception e) {
           LOG.warn("Error setting agent debug mode", e);

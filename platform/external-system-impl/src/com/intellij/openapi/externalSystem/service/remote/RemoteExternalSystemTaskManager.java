@@ -21,6 +21,9 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType;
 import com.intellij.openapi.externalSystem.service.RemoteExternalSystemService;
+import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
+import com.intellij.openapi.externalSystem.util.task.TaskExecutionSpec;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,51 +33,65 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@ApiStatus.NonExtendable
 public interface RemoteExternalSystemTaskManager<S extends ExternalSystemExecutionSettings> extends RemoteExternalSystemService<S> {
 
-  /** <a href="http://en.wikipedia.org/wiki/Null_Object_pattern">Null object</a> for {@link RemoteExternalSystemProjectResolverImpl}. */
-  RemoteExternalSystemTaskManager<ExternalSystemExecutionSettings> NULL_OBJECT =
-    new RemoteExternalSystemTaskManager<>() {
+  @ApiStatus.Internal
+  RemoteExternalSystemTaskManager<ExternalSystemExecutionSettings> NULL_OBJECT = new RemoteExternalSystemTaskManager<>() {
 
-      @Override
-      public void executeTasks(@NotNull ExternalSystemTaskId id,
-                               @NotNull List<String> taskNames,
-                               @NotNull String projectPath,
-                               @Nullable ExternalSystemExecutionSettings settings,
-                               @Nullable String jvmParametersSetup) throws ExternalSystemException {
-      }
+    @Override
+    public void executeTasksImpl(
+      @NotNull ExternalSystemTaskId id,
+      @NotNull List<String> taskNames,
+      @NotNull String projectPath,
+      @Nullable ExternalSystemExecutionSettings settings,
+      @Nullable String jvmParametersSetup
+    ) throws ExternalSystemException { }
 
-      @Override
-      public boolean cancelTask(@NotNull ExternalSystemTaskId id) throws ExternalSystemException {
-        return false;
-      }
+    @Override
+    public boolean cancelTask(@NotNull ExternalSystemTaskId id) throws ExternalSystemException {
+      return false;
+    }
 
-      @Override
-      public void setSettings(@NotNull ExternalSystemExecutionSettings settings) {
-      }
+    @Override
+    public void setSettings(@NotNull ExternalSystemExecutionSettings settings) { }
 
-      @Override
-      public void setNotificationListener(@NotNull ExternalSystemTaskNotificationListener notificationListener) {
-      }
+    @Override
+    public void setNotificationListener(@NotNull ExternalSystemTaskNotificationListener notificationListener) { }
 
-      @Override
-      public boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) {
-        return false;
-      }
+    @Override
+    public boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) {
+      return false;
+    }
 
-      @NotNull
-      @Override
-      public Map<ExternalSystemTaskType, Set<ExternalSystemTaskId>> getTasksInProgress() {
-        return Collections.emptyMap();
-      }
-    };
+    @Override
+    public @NotNull Map<ExternalSystemTaskType, Set<ExternalSystemTaskId>> getTasksInProgress() {
+      return Collections.emptyMap();
+    }
+  };
 
-  default void executeTasks(@NotNull ExternalSystemTaskId id,
-                            @NotNull List<String> taskNames,
-                            @NotNull String projectPath,
-                            @Nullable S settings,
-                            @Nullable String jvmParametersSetup) throws RemoteException, ExternalSystemException {
+  /**
+   * @deprecated Use {@link ExternalSystemUtil#runTask(TaskExecutionSpec) instead}.
+   */
+  @Deprecated(forRemoval = true)
+  default void executeTasks(
+    @NotNull ExternalSystemTaskId id,
+    @NotNull List<String> taskNames,
+    @NotNull String projectPath,
+    @Nullable S settings,
+    @Nullable String jvmParametersSetup
+  ) throws RemoteException, ExternalSystemException {
+    executeTasksImpl(id, taskNames, projectPath, settings, jvmParametersSetup);
   }
+
+  @ApiStatus.Internal
+  void executeTasksImpl(
+    @NotNull ExternalSystemTaskId id,
+    @NotNull List<String> taskNames,
+    @NotNull String projectPath,
+    @Nullable S settings,
+    @Nullable String jvmParametersSetup
+  ) throws RemoteException, ExternalSystemException;
 
   @Override
   boolean cancelTask(@NotNull ExternalSystemTaskId id) throws RemoteException, ExternalSystemException;

@@ -11,8 +11,6 @@ import com.intellij.openapi.externalSystem.service.execution.TargetEnvironmentCo
 import com.intellij.openapi.externalSystem.service.remote.ExternalSystemProgressNotificationManagerImpl;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.util.execution.ParametersListUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -111,9 +109,9 @@ public class ExternalSystemExecuteTaskTask extends AbstractExternalSystemTask {
     try {
       var manager = ExternalSystemFacadeManager.getInstance();
       var facade = manager.getFacade(project, projectPath, projectSystemId);
-      var taskManager = facade.getTaskManager();
+      var taskManager = facade.getTaskManagerImpl();
       //noinspection unchecked
-      taskManager.executeTasks(id, myTasksToExecute, projectPath, settings, myJvmParametersSetup);
+      taskManager.executeTasksImpl(id, myTasksToExecute, projectPath, settings, myJvmParametersSetup);
     }
     finally {
       activity.finished();
@@ -124,7 +122,7 @@ public class ExternalSystemExecuteTaskTask extends AbstractExternalSystemTask {
   protected boolean doCancel() throws Exception {
     var manager = ExternalSystemFacadeManager.getInstance();
     var facade = manager.getFacade(getIdeProject(), getExternalProjectPath(), getExternalSystemId());
-    var taskManager = facade.getTaskManager();
+    var taskManager = facade.getTaskManagerImpl();
     return taskManager.cancelTask(getId());
   }
 

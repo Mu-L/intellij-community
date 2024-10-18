@@ -7,11 +7,9 @@ import com.intellij.platform.eel.EelUserPosixInfo
 import com.intellij.platform.eel.EelUserWindowsInfo
 import com.intellij.platform.eel.fs.EelFileSystemApi.StatError
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.path.EelPathError
 import java.nio.ByteBuffer
-import kotlin.Throws
 
-fun EelFileSystemApi.getPath(string: String, vararg other: String): EelResult<out EelPath.Absolute, EelPathError> {
+fun EelFileSystemApi.getPath(string: String, vararg other: String): EelPath.Absolute {
   return EelPath.Absolute.build(listOf(string, *other), when (this) {
     is EelFileSystemPosixApi -> EelPath.Absolute.OS.UNIX
     is EelFileSystemWindowsApi -> EelPath.Absolute.OS.WINDOWS
@@ -355,6 +353,32 @@ interface EelFileSystemApi {
     @JvmStatic
     fun createTemporaryDirectoryOptions(): CreateTemporaryDirectoryOptions =
       CreateTemporaryDirectoryOptionsImpl()
+  }
+
+  /**
+   * Returns information about a logical disk that contains [path].
+   */
+  suspend fun getDiskInfo(path: EelPath.Absolute): EelResult<DiskInfo, DiskInfoError>
+
+  interface DiskInfo {
+    /**
+     * Total capacity of a logical disk.
+     * If more than [ULong.MAX_VALUE] available, then the returned value is [ULong.MAX_VALUE]
+     */
+    val totalSpace: ULong
+
+    /**
+     * The number of available bytes on a logical disk.
+     * If more than [ULong.MAX_VALUE] available, then the returned value is [ULong.MAX_VALUE]
+     */
+    val availableSpace: ULong
+  }
+
+  sealed interface DiskInfoError : EelFsError {
+    interface PathDoesNotExists : DiskInfoError, EelFsError.DoesNotExist
+    interface PermissionDenied : DiskInfoError, EelFsError.PermissionDenied
+    interface NameTooLong : DiskInfoError, EelFsError.NameTooLong
+    interface Other : DiskInfoError, EelFsError.Other
   }
 }
 
