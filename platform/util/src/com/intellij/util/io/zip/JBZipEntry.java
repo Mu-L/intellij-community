@@ -8,9 +8,11 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.UnsyncByteArrayInputStream;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -30,20 +32,20 @@ public class JBZipEntry implements Cloneable {
   private static final int SHORT_MASK = 0xFFFF;
   private static final int SHORT_SHIFT = 16;
 
-  private long time = -1;     // modification time (in DOS time)
-  private long crc = -1;      // crc-32 of entry data
-  private long size = -1;     // uncompressed size of entry data
-  private long csize = -1;    // compressed size of entry data
-  private int method = -1;    // compression method
-  private List<JBZipExtraField> extra = new SmartList<>();   // optional extra field data for entry
-  private String comment;     // optional comment string for entry
+  private volatile long time = -1;     // modification time (in DOS time)
+  private volatile long crc = -1;      // crc-32 of entry data
+  private volatile long size = -1;     // uncompressed size of entry data
+  private volatile long csize = -1;    // compressed size of entry data
+  private volatile int method = -1;    // compression method
+  private volatile List<JBZipExtraField> extra = new SmartList<>();   // optional extra field data for entry
+  private volatile String comment;     // optional comment string for entry
 
-  private int internalAttributes = 0;
-  private int platform = PLATFORM_FAT;
-  private long externalAttributes = 0;
-  private String name;
+  private volatile int internalAttributes = 0;
+  private volatile int platform = PLATFORM_FAT;
+  private volatile long externalAttributes = 0;
+  private volatile String name;
 
-  private long headerOffset = -1;
+  private volatile long headerOffset = -1;
   private final JBZipFile myFile;
 
 
@@ -334,12 +336,13 @@ public class JBZipEntry implements Cloneable {
     myFile.eraseEntry(this);
   }
 
-  private InputStream getInputStream() throws IOException {
+  @ApiStatus.Internal
+  public InputStream getInputStream() throws IOException {
     myFile.ensureFlushed(getHeaderOffset() + JBZipFile.LFH_OFFSET_FOR_FILENAME_LENGTH + JBZipFile.WORD);
     long start = calcDataOffset();
     long size = getCompressedSize();
     myFile.ensureFlushed(start + size);
-    if (myFile.myArchive.length() < start + size) {
+    if (myFile.myArchive.size() < start + size) {
       throw new EOFException();
     }
     BoundedInputStream bis = new BoundedInputStream(start, size);
@@ -348,7 +351,8 @@ public class JBZipEntry implements Cloneable {
         return bis;
       case ZipEntry.DEFLATED:
         bis.addDummy();
-        return new InflaterInputStream(bis, new Inflater(true));
+        int bufferSize = Math.min((int)this.size, 8192);
+        return new InflaterInputStream(bis, new Inflater(true), bufferSize);
       default:
         throw new ZipException("Found unsupported compression method " + getMethod());
     }
@@ -547,9 +551,8 @@ public class JBZipEntry implements Cloneable {
 
   public long calcDataOffset() throws IOException {
     long offset = getHeaderOffset();
-    myFile.myArchive.seek(offset + JBZipFile.LFH_OFFSET_FOR_FILENAME_LENGTH);
     byte[] b = new byte[JBZipFile.WORD];
-    myFile.myArchive.readFully(b);
+    myFile.readFullyFromPosition(b, offset + JBZipFile.LFH_OFFSET_FOR_FILENAME_LENGTH);
     int fileNameLen = ZipShort.getValue(b, 0);
     int extraFieldLen = ZipShort.getValue(b, JBZipFile.SHORT);
     return offset + JBZipFile.LFH_OFFSET_FOR_FILENAME_LENGTH + JBZipFile.WORD + fileNameLen + extraFieldLen;
@@ -606,9 +609,7 @@ public class JBZipEntry implements Cloneable {
       }
 
       final int ret;
-      RandomAccessFile archive = myFile.myArchive;
-      archive.seek(loc);
-      ret = archive.read(b, off, len);
+      ret = myFile.readFromPosition(b, off, len, loc);
 
       if (ret > 0) {
         loc += ret;
@@ -627,9 +628,9 @@ public class JBZipEntry implements Cloneable {
         return -1;
       }
 
-      RandomAccessFile archive = myFile.myArchive;
-      archive.seek(loc++);
-      return archive.read();
+      SeekableByteChannel archive = myFile.myArchive;
+      archive.position(loc++);
+      return myFile.readByte();
     }
 
     /**

@@ -6,9 +6,11 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiMember
+import com.intellij.psi.PsiField
+import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
+import com.intellij.util.Processor
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
@@ -95,25 +97,21 @@ class KtSymbolFromIndexProvider private constructor(
         psiFilter: (PsiClass) -> Boolean = { true }
     ): Sequence<KaNamedClassSymbol> {
         val names = buildSet {
-            nonKotlinNamesCaches.forEach { cache ->
-                cache.processAllClassNames({ nameString ->
-                                               if (!Name.isValidIdentifier(nameString)) return@processAllClassNames true
-                                               val name = Name.identifier(nameString)
-                                               if (nameFilter(name)) {
-                                                   add(name)
-                                               }
-                                               true
-                                           }, scope, null)
+            val processor = Processor { nameString: String ->
+                Name.identifierIfValid(nameString)
+                    ?.takeIf(nameFilter)
+                    ?.let(::add)
+                true
+            }
+
+            nonKotlinNamesCaches.forEach {
+                it.processAllClassNames(processor, scope, null)
             }
         }
 
-        return sequence {
-            names.forEach { name ->
-                yieldAll(getJavaClassesByName(name, psiFilter))
-            }
-        }
+        return names.asSequence()
+            .flatMap { getJavaClassesByName(it, psiFilter) }
     }
-
 
     context(KaSession)
     fun getJavaClassesByName(
@@ -155,18 +153,22 @@ class KtSymbolFromIndexProvider private constructor(
             resolveExtensionScopeWithTopLevelDeclarations.callables(name)
 
     context(KaSession)
-    fun getJavaCallableSymbolsByName(
+    fun getJavaMethodsByName(
         name: Name,
-        psiFilter: (PsiMember) -> Boolean = { true }
-    ): Sequence<KaCallableSymbol> {
-        val nameString = name.asString()
+        psiFilter: (PsiMethod) -> Boolean = { true },
+    ): Sequence<KaCallableSymbol> = nonKotlinNamesCaches.flatMap {
+        it.getMethodsByName(name.asString(), scope).asSequence()
+    }.filter { it.isAcceptable(psiFilter) }
+        .mapNotNull { it.callableSymbol }
 
-        return nonKotlinNamesCaches.flatMap { cache ->
-            cache.getMethodsByName(nameString, scope).asSequence() +
-                    cache.getFieldsByName(nameString, scope)
-        }.filter { it.isAcceptable(psiFilter) }
-            .mapNotNull { it.callableSymbol }
-    }
+    context(KaSession)
+    fun getJavaFieldsByName(
+        name: Name,
+        psiFilter: (PsiField) -> Boolean = { true },
+    ): Sequence<KaCallableSymbol> = nonKotlinNamesCaches.flatMap {
+        it.getFieldsByName(name.asString(), scope).asSequence()
+    }.filter { it.isAcceptable(psiFilter) }
+        .mapNotNull { it.callableSymbol }
 
     /**
      *  Returns top-level callables, excluding extensions. To obtain extensions use [getExtensionCallableSymbolsByNameFilter].

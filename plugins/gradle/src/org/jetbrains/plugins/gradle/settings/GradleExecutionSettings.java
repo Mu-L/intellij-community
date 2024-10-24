@@ -3,6 +3,7 @@ package org.jetbrains.plugins.gradle.settings;
 
 import com.intellij.openapi.externalSystem.model.settings.ExternalSystemExecutionSettings;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.execution.ParametersListUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -12,21 +13,21 @@ import java.util.Objects;
 
 public class GradleExecutionSettings extends ExternalSystemExecutionSettings {
 
-  private static final boolean USE_VERBOSE_GRADLE_API_BY_DEFAULT = Boolean.parseBoolean(System.getProperty("gradle.api.verbose"));
+  private static final @NotNull String USE_VERBOSE_GRADLE_API_KEY = "gradle.api.verbose";
+  private static final boolean USE_VERBOSE_GRADLE_API_DEFAULT = false;
 
-  @NotNull private final GradleExecutionWorkspace myExecutionWorkspace = new GradleExecutionWorkspace();
+  private final @NotNull GradleExecutionWorkspace myExecutionWorkspace;
 
-  @Nullable private final String myGradleHome;
+  private @Nullable String myGradleHome = null;
 
-  @Nullable private final String myServiceDirectory;
-  private final boolean myIsOfflineWork;
+  private @Nullable String myServiceDirectory = null;
+  private boolean myIsOfflineWork = false;
 
-  @NotNull private final DistributionType myDistributionType;
-  @Nullable private String wrapperPropertyFile;
+  private @NotNull DistributionType myDistributionType = DistributionType.BUNDLED;
+  private @Nullable String wrapperPropertyFile = null;
 
-  @Nullable private String myJavaHome;
-  @Nullable
-  private String myIdeProjectPath;
+  private @Nullable String myJavaHome = null;
+  private @Nullable String myIdeProjectPath = null;
   private boolean resolveModulePerSourceSet = true;
   private boolean useQualifiedModuleNames = false;
   private boolean delegatedBuild = true;
@@ -35,30 +36,69 @@ public class GradleExecutionSettings extends ExternalSystemExecutionSettings {
 
   private boolean myBuiltInTestEventsUsed = false;
 
-  public GradleExecutionSettings(@Nullable String gradleHome,
-                                 @Nullable String serviceDirectory,
-                                 @NotNull DistributionType distributionType,
-                                 boolean isOfflineWork) {
-    myGradleHome = gradleHome;
-    myServiceDirectory = serviceDirectory;
-    myDistributionType = distributionType;
-    myIsOfflineWork = isOfflineWork;
-    setVerboseProcessing(USE_VERBOSE_GRADLE_API_BY_DEFAULT);
+  /**
+   * @deprecated use default constructor instead
+   */
+  @Deprecated
+  public GradleExecutionSettings(
+    @Nullable String gradleHome,
+    @Nullable String serviceDirectory,
+    @NotNull DistributionType distributionType,
+    boolean isOfflineWork
+  ) {
+    this();
+
+    setGradleHome(gradleHome);
+    setServiceDirectory(serviceDirectory);
+    setDistributionType(distributionType);
+    setOfflineWork(isOfflineWork);
   }
 
-  public GradleExecutionSettings(@Nullable String gradleHome,
-                                 @Nullable String serviceDirectory,
-                                 @NotNull DistributionType distributionType,
-                                 @Nullable String daemonVmOptions,
-                                 boolean isOfflineWork) {
-    myGradleHome = gradleHome;
-    myServiceDirectory = serviceDirectory;
-    myDistributionType = distributionType;
+  /**
+   * @deprecated use default constructor instead
+   */
+  @Deprecated
+  public GradleExecutionSettings(
+    @Nullable String gradleHome,
+    @Nullable String serviceDirectory,
+    @NotNull DistributionType distributionType,
+    @Nullable String daemonVmOptions,
+    boolean isOfflineWork
+  ) {
+    this(gradleHome, serviceDirectory, distributionType, isOfflineWork);
     if (daemonVmOptions != null) {
       withVmOptions(ParametersListUtil.parse(daemonVmOptions));
     }
-    myIsOfflineWork = isOfflineWork;
-    setVerboseProcessing(USE_VERBOSE_GRADLE_API_BY_DEFAULT);
+  }
+
+  public GradleExecutionSettings() {
+    myExecutionWorkspace = new GradleExecutionWorkspace();
+
+    setVerboseProcessing(SystemProperties.getBooleanProperty(USE_VERBOSE_GRADLE_API_KEY, USE_VERBOSE_GRADLE_API_DEFAULT));
+  }
+
+  public GradleExecutionSettings(@NotNull GradleExecutionSettings settings) {
+    super(settings);
+
+    myExecutionWorkspace = settings.myExecutionWorkspace;
+
+    myGradleHome = settings.myGradleHome;
+
+    myServiceDirectory = settings.myServiceDirectory;
+    myIsOfflineWork = settings.myIsOfflineWork;
+
+    myDistributionType = settings.myDistributionType;
+    wrapperPropertyFile = settings.wrapperPropertyFile;
+
+    myJavaHome = settings.myJavaHome;
+    myIdeProjectPath = settings.myIdeProjectPath;
+    resolveModulePerSourceSet = settings.resolveModulePerSourceSet;
+    useQualifiedModuleNames = settings.useQualifiedModuleNames;
+    delegatedBuild = settings.delegatedBuild;
+    downloadSources = settings.downloadSources;
+    isParallelModelFetch = settings.isParallelModelFetch;
+
+    myBuiltInTestEventsUsed = settings.myBuiltInTestEventsUsed;
   }
 
   public void setIdeProjectPath(@Nullable String ideProjectPath) {
@@ -75,9 +115,17 @@ public class GradleExecutionSettings extends ExternalSystemExecutionSettings {
     return myGradleHome;
   }
 
+  public void setGradleHome(@Nullable String gradleHome) {
+    myGradleHome = gradleHome;
+  }
+
   @Nullable
   public String getServiceDirectory() {
     return myServiceDirectory;
+  }
+
+  public void setServiceDirectory(@Nullable String serviceDirectory) {
+    myServiceDirectory = serviceDirectory;
   }
 
   @Nullable
@@ -91,6 +139,10 @@ public class GradleExecutionSettings extends ExternalSystemExecutionSettings {
 
   public boolean isOfflineWork() {
     return myIsOfflineWork;
+  }
+
+  public void setOfflineWork(boolean offlineWork) {
+    myIsOfflineWork = offlineWork;
   }
 
   public boolean isResolveModulePerSourceSet() {
@@ -129,6 +181,10 @@ public class GradleExecutionSettings extends ExternalSystemExecutionSettings {
   @NotNull
   public DistributionType getDistributionType() {
     return myDistributionType;
+  }
+
+  public void setDistributionType(@NotNull DistributionType distributionType) {
+    myDistributionType = distributionType;
   }
 
   @NotNull

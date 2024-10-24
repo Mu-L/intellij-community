@@ -40,7 +40,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.function.Consumer
 import java.util.regex.Pattern
 import java.util.zip.CRC32
-import kotlin.Throws
 
 class MavenProjectsTree(val project: Project) {
   private val myStructureLock = ReentrantReadWriteLock()
@@ -588,6 +587,19 @@ class MavenProjectsTree(val project: Project) {
     return true
   }
 
+  internal fun recalculateMavenIdToProjectMap() {
+    withWriteLock {
+      myMavenIdToProjectMapping.clear()
+      myWorkspaceMap.availableIds.toList().forEach {
+        myWorkspaceMap.unregister(it)
+      }
+      myVirtualFileToProjectMapping.values.forEach {
+        myMavenIdToProjectMapping[it.mavenId] = it
+        myWorkspaceMap.register(it.mavenId, File(it.file.path))
+      }
+    }
+  }
+
   fun hasProjects(): Boolean {
     return withReadLock { !myRootProjects.isEmpty() }
   }
@@ -1063,8 +1075,8 @@ class MavenProjectsTree(val project: Project) {
   companion object {
     private val LOG = Logger.getInstance(MavenProjectsTree::class.java)
 
-    private const val STORAGE_VERSION_NUMBER = 10
-    private val STORAGE_VERSION = MavenProjectsTree::class.java.simpleName + "." + STORAGE_VERSION_NUMBER
+    private const val STORAGE_VERSION_NUMBER = 11
+    val STORAGE_VERSION = MavenProjectsTree::class.java.simpleName + "." + STORAGE_VERSION_NUMBER
 
     private fun String.getStorageVersionNumber(): Int {
       val parts = this.split(".")
