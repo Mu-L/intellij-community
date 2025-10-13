@@ -24,30 +24,19 @@ sealed interface TerminalOutputModel {
 
   val cursorOffset: TerminalOffset
 
-  /**
-   * Offset in the document where the cursor is located now.
-   */
-  val cursorOffsetState: StateFlow<TerminalOffset>
-
   val startOffset: TerminalOffset
 
-  val firstLine: TerminalLine
-
-  val lastLine: TerminalLine
+  val firstLine: TerminalLineIndex
 
   fun addListener(parentDisposable: Disposable, listener: TerminalOutputModelListener)
 
-  fun snapshot(): TerminalOutputModelSnapshot
+  fun takeSnapshot(): TerminalOutputModelSnapshot
 
-  fun absoluteOffset(offset: Long): TerminalOffset
+  fun getLineByOffset(offset: TerminalOffset): TerminalLineIndex
 
-  fun absoluteLine(line: Long): TerminalLine
+  fun getStartOfLine(line: TerminalLineIndex): TerminalOffset
 
-  fun lineByOffset(offset: TerminalOffset): TerminalLine
-
-  fun startOffset(line: TerminalLine): TerminalOffset
-
-  fun endOffset(line: TerminalLine, includeEOL: Boolean = false): TerminalOffset
+  fun getEndOfLine(line: TerminalLineIndex, includeEOL: Boolean = false): TerminalOffset
 
   fun getText(start: TerminalOffset, end: TerminalOffset): String
 
@@ -63,10 +52,34 @@ sealed interface TerminalOutputModel {
 }
 
 @ApiStatus.Experimental
-sealed interface TerminalOutputModelSnapshot : TerminalOutputModel
+sealed interface TerminalOutputModelSnapshot {
+  val immutableText: CharSequence
+
+  val lineCount: Int
+
+  val modificationStamp: Long
+
+  val cursorOffset: TerminalOffset
+
+  val startOffset: TerminalOffset
+
+  val firstLine: TerminalLineIndex
+
+  fun getLineByOffset(offset: TerminalOffset): TerminalLineIndex
+
+  fun getStartOfLine(line: TerminalLineIndex): TerminalOffset
+
+  fun getEndOfLine(line: TerminalLineIndex, includeEOL: Boolean = false): TerminalOffset
+
+  fun getText(start: TerminalOffset, end: TerminalOffset): String
+}
 
 @ApiStatus.Experimental
 sealed interface TerminalOffset : Comparable<TerminalOffset> {
+  companion object {
+    @JvmStatic fun of(absoluteOffset: Long): TerminalOffset = TerminalOffsetImpl(absoluteOffset)
+    @JvmField val ZERO: TerminalOffset = of(0L)
+  }
   fun toAbsolute(): Long
   operator fun plus(charCount: Long): TerminalOffset
   operator fun minus(charCount: Long): TerminalOffset
@@ -74,10 +87,15 @@ sealed interface TerminalOffset : Comparable<TerminalOffset> {
 }
 
 @ApiStatus.Experimental
-sealed interface TerminalLine : Comparable<TerminalLine> {
+sealed interface TerminalLineIndex : Comparable<TerminalLineIndex> {
+  companion object {
+    @JvmStatic fun of(absoluteOffset: Long): TerminalLineIndex = TerminalLineIndexImpl(absoluteOffset)
+    @JvmField val ZERO: TerminalLineIndex = of(0L)
+  }
   fun toAbsolute(): Long
-  operator fun plus(lineCount: Long): TerminalLine
-  operator fun minus(other: TerminalLine): Long
+  operator fun plus(lineCount: Long): TerminalLineIndex
+  operator fun minus(lineCount: Long): TerminalLineIndex
+  operator fun minus(other: TerminalLineIndex): Long
 }
 
 @get:ApiStatus.Experimental
@@ -87,3 +105,38 @@ val TerminalOutputModel.textLength: Int
 @get:ApiStatus.Experimental
 val TerminalOutputModel.endOffset: TerminalOffset
   get() = startOffset + textLength.toLong()
+
+@get:ApiStatus.Experimental
+val TerminalOutputModel.lastLine: TerminalLineIndex
+  get() = firstLine + (lineCount - 1).toLong()
+
+@get:ApiStatus.Experimental
+val TerminalOutputModelSnapshot.textLength: Int
+  get() = immutableText.length
+
+@get:ApiStatus.Experimental
+val TerminalOutputModelSnapshot.endOffset: TerminalOffset
+  get() = startOffset + textLength.toLong()
+
+@get:ApiStatus.Experimental
+val TerminalOutputModelSnapshot.lastLine: TerminalLineIndex
+  get() = firstLine + (lineCount - 1).toLong()
+
+
+private data class TerminalOffsetImpl(private val absolute: Long) : TerminalOffset {
+  override fun compareTo(other: TerminalOffset): Int = toAbsolute().compareTo(other.toAbsolute())
+  override fun toAbsolute(): Long = absolute
+  override fun plus(charCount: Long): TerminalOffset = TerminalOffsetImpl(absolute + charCount)
+  override fun minus(charCount: Long): TerminalOffset = plus(-charCount)
+  override fun minus(other: TerminalOffset): Long = toAbsolute() - other.toAbsolute()
+  override fun toString(): String = "${toAbsolute()}L"
+}
+
+private data class TerminalLineIndexImpl(private val absolute: Long) : TerminalLineIndex {
+  override fun compareTo(other: TerminalLineIndex): Int = toAbsolute().compareTo(other.toAbsolute())
+  override fun toAbsolute(): Long = absolute
+  override fun plus(lineCount: Long): TerminalLineIndex = TerminalLineIndexImpl(absolute + lineCount)
+  override fun minus(lineCount: Long): TerminalLineIndex = TerminalLineIndexImpl(absolute - lineCount)
+  override fun minus(other: TerminalLineIndex): Long = toAbsolute() - other.toAbsolute()
+  override fun toString(): String = "${toAbsolute()}L"
+}

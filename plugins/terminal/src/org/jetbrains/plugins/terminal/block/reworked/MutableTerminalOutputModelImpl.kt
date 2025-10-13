@@ -10,11 +10,7 @@ import com.intellij.openapi.editor.impl.FrozenDocument
 import com.intellij.openapi.util.TextRange
 import com.intellij.terminal.TerminalColorPalette
 import com.intellij.util.EventDispatcher
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.block.output.HighlightingInfo
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputHighlightingsSnapshot
@@ -24,98 +20,26 @@ import org.jetbrains.plugins.terminal.session.StyleRange
 import org.jetbrains.plugins.terminal.session.TerminalOutputModelState
 import kotlin.math.max
 
-@ApiStatus.Internal
-sealed class AbstractTerminalOutputModelImpl(
-  val document: Document,
-) : TerminalOutputModelSnapshot {
-
-  abstract val trimmedCharsCount: Long
-
-  abstract val trimmedLinesCount: Long
-
-  override val immutableText: CharSequence
-    get() = document.immutableCharSequence
-
-  override val lineCount: Int
-    get() = document.lineCount
-
-  override val modificationStamp: Long
-    get() = document.modificationStamp
-
-  override val startOffset: TerminalOffset
-    get() = relativeOffset(0)
-
-  override val firstLine: TerminalLine
-    get() = TerminalLineImpl(trimmedLinesCount)
-
-  override val lastLine: TerminalLine
-    get() = TerminalLineImpl(trimmedLinesCount + lineCount - 1)
-
-  protected fun relativeOffset(offset: Int): TerminalOffset = TerminalOffsetImpl(trimmedCharsCount + offset)
-
-  override fun absoluteOffset(offset: Long): TerminalOffset = TerminalOffsetImpl(offset)
-
-  override fun absoluteLine(line: Long): TerminalLine = TerminalLineImpl(line)
-
-  override fun lineByOffset(offset: TerminalOffset): TerminalLine = TerminalLineImpl(trimmedLinesCount + document.getLineNumber(offset.toRelative()))
-
-  override fun startOffset(line: TerminalLine): TerminalOffset = relativeOffset(document.getLineStartOffset(line.toRelative()))
-
-  override fun endOffset(line: TerminalLine, includeEOL: Boolean): TerminalOffset {
-    var result = document.getLineEndOffset(line.toRelative())
-    if (includeEOL && result < textLength) {
-      ++result
-    }
-    return relativeOffset(result)
-  }
-
-  override fun getText(start: TerminalOffset, end: TerminalOffset): String =
-    document.getText(TextRange(start.toRelative(), end.toRelative()))
-
-  override fun snapshot(): TerminalOutputModelSnapshot = this
-
-  override fun addListener(parentDisposable: Disposable, listener: TerminalOutputModelListener) {
-    // Do nothing, because the model is immutable, and therefore no events can be fired.
-  }
-
-  protected fun TerminalOffset.toRelative(): Int = (this - startOffset).toInt()
-
-  private fun TerminalLine.toRelative(): Int = (this - firstLine).toInt()
-}
-
 /**
  * [maxOutputLength] limits the length of the document. Zero means unlimited length.
  */
 @ApiStatus.Internal
 class MutableTerminalOutputModelImpl(
-  document: Document,
+  override val document: Document,
   private val maxOutputLength: Int,
-) : AbstractTerminalOutputModelImpl(document), MutableTerminalOutputModel {
+) : MutableTerminalOutputModel {
 
-  override val immutableText: CharSequence
-    get() = document.immutableCharSequence
-
-  override val lineCount: Int
-    get() = document.lineCount
-
-  override val modificationStamp: Long
-    get() = document.modificationStamp
-
-  private val mutableCursorOffsetState: MutableStateFlow<TerminalOffset> = MutableStateFlow(absoluteOffset(0))
-  override val cursorOffsetState: StateFlow<TerminalOffset> = mutableCursorOffsetState.asStateFlow()
-
-  override val cursorOffset: TerminalOffset
-    get() = cursorOffsetState.value
+  override var cursorOffset: TerminalOffset = TerminalOffset.ZERO
 
   private val highlightingsModel = HighlightingsModel()
 
   private val dispatcher = EventDispatcher.create(TerminalOutputModelListener::class.java)
 
   @VisibleForTesting
-  override var trimmedLinesCount: Long = 0
+  var trimmedLinesCount: Long = 0
 
   @VisibleForTesting
-  override var trimmedCharsCount: Long = 0
+  var trimmedCharsCount: Long = 0
 
   @VisibleForTesting
   var firstLineTrimmedCharsCount: Int = 0
@@ -124,7 +48,41 @@ class MutableTerminalOutputModelImpl(
 
   private var isTypeAhead: Boolean = false
 
-  override fun snapshot(): TerminalOutputModelSnapshot =
+  override val immutableText: CharSequence
+    get() = immutableTextImpl(document)
+
+  override val lineCount: Int
+    get() = lineCountImpl(document)
+
+  override val modificationStamp: Long
+    get() = modificationStampImpl(document)
+
+  override val startOffset: TerminalOffset
+    get() = TerminalOffset.of(trimmedCharsCount)
+
+  override val firstLine: TerminalLineIndex
+    get() = TerminalLineIndex.of(trimmedLinesCount)
+
+  private fun relativeOffset(offset: Int): TerminalOffset =
+    TerminalOffset.of(trimmedCharsCount + offset)
+
+  override fun getLineByOffset(offset: TerminalOffset): TerminalLineIndex =
+    getLineByOffsetImpl(trimmedLinesCount, document, offset.toRelative())
+
+  override fun getStartOfLine(line: TerminalLineIndex): TerminalOffset =
+    getStartOfLineImpl(trimmedCharsCount, document, line.toRelative())
+
+  override fun getEndOfLine(line: TerminalLineIndex, includeEOL: Boolean): TerminalOffset =
+    getEndOfLineImpl(trimmedCharsCount, document, line.toRelative(), includeEOL)
+
+  override fun getText(start: TerminalOffset, end: TerminalOffset): String =
+    getTextImpl(document, start.toRelative(), end.toRelative())
+
+  private fun TerminalOffset.toRelative(): Int = (this - startOffset).toInt()
+
+  private fun TerminalLineIndex.toRelative(): Int = (this - firstLine).toInt()
+
+  override fun takeSnapshot(): TerminalOutputModelSnapshot =
     TerminalOutputModelSnapshotImpl((document as DocumentImpl).freeze(), trimmedCharsCount, trimmedLinesCount, cursorOffset)
 
   override fun updateContent(absoluteLineIndex: Long, text: String, styles: List<StyleRange>) {
@@ -178,11 +136,13 @@ class MutableTerminalOutputModelImpl(
 
     val newCursorOffset = lineStartOffset + trimmedColumnIndex
     LOG.debug { "Updated the cursor position to $newCursorOffset" }
-    mutableCursorOffsetState.value = relativeOffset(newCursorOffset)
+    updateCursorPosition(relativeOffset(newCursorOffset))
   }
 
   override fun updateCursorPosition(offset: TerminalOffset) {
-    mutableCursorOffsetState.value = offset
+    val oldValue = cursorOffset
+    this.cursorOffset = offset
+    dispatcher.multicaster.cursorOffsetChanged(TerminalCursorOffsetChangedImpl(this, oldValue, offset))
   }
 
   /** Returns offset from which document was updated */
@@ -237,8 +197,8 @@ class MutableTerminalOutputModelImpl(
     // It'll update itself later to the correct position anyway, but having the incorrect value can cause exceptions before that.
     val newLength = document.textLength
     val docEndOffset = relativeOffset(newLength)
-    if (mutableCursorOffsetState.value > docEndOffset) {
-      mutableCursorOffsetState.value = docEndOffset
+    if (cursorOffset > docEndOffset) {
+      updateCursorPosition(docEndOffset)
     }
   }
 
@@ -326,7 +286,7 @@ class MutableTerminalOutputModelImpl(
       trimmedLinesCount = trimmedLinesCount,
       trimmedCharsCount = trimmedCharsCount,
       firstLineTrimmedCharsCount = firstLineTrimmedCharsCount,
-      cursorOffset = cursorOffsetState.value.toRelative(),
+      cursorOffset = cursorOffset.toRelative(),
       highlightings = highlightingsModel.dumpState()
     )
   }
@@ -338,7 +298,7 @@ class MutableTerminalOutputModelImpl(
       firstLineTrimmedCharsCount = state.firstLineTrimmedCharsCount
       document.setText(state.text)
       highlightingsModel.restoreFromState(state.highlightings)
-      mutableCursorOffsetState.value = relativeOffset(state.cursorOffset)
+      updateCursorPosition(relativeOffset(state.cursorOffset))
 
       0  // the document is changed from right from the start
     }
@@ -542,42 +502,79 @@ class MutableTerminalOutputModelImpl(
 
 @ApiStatus.Internal
 class TerminalOutputModelSnapshotImpl(
-  document: FrozenDocument,
-  override val trimmedCharsCount: Long,
-  override val trimmedLinesCount: Long,
+  private val document: FrozenDocument,
+  private val trimmedCharsCount: Long,
+  private val trimmedLinesCount: Long,
   override val cursorOffset: TerminalOffset,
-) : AbstractTerminalOutputModelImpl(document), TerminalOutputModelSnapshot {
+) : TerminalOutputModelSnapshot {
 
-  override val cursorOffsetState: StateFlow<TerminalOffset> = MutableStateFlow(cursorOffset).asStateFlow()
+  override val immutableText: CharSequence
+    get() = immutableTextImpl(document)
 
-  override fun getHighlightings(): TerminalOutputHighlightingsSnapshot {
-    throw UnsupportedOperationException("Not implemented for performance reasons")
+  override val lineCount: Int
+    get() = lineCountImpl(document)
+
+  override val modificationStamp: Long
+    get() = modificationStampImpl(document)
+
+  override val startOffset: TerminalOffset
+    get() = TerminalOffset.of(trimmedCharsCount)
+
+  override val firstLine: TerminalLineIndex
+    get() = TerminalLineIndex.of(trimmedLinesCount)
+
+  override fun getLineByOffset(offset: TerminalOffset): TerminalLineIndex =
+    getLineByOffsetImpl(trimmedLinesCount, document, offset.toRelative())
+
+  override fun getStartOfLine(line: TerminalLineIndex): TerminalOffset =
+    getStartOfLineImpl(trimmedCharsCount, document, line.toRelative())
+
+  override fun getEndOfLine(line: TerminalLineIndex, includeEOL: Boolean): TerminalOffset =
+    getEndOfLineImpl(trimmedCharsCount, document, line.toRelative(), includeEOL)
+
+  override fun getText(start: TerminalOffset, end: TerminalOffset): String =
+    getTextImpl(document, start.toRelative(), end.toRelative())
+
+  private fun TerminalOffset.toRelative(): Int = (this - startOffset).toInt()
+
+  private fun TerminalLineIndex.toRelative(): Int = (this - firstLine).toInt()
+}
+
+private fun immutableTextImpl(document: Document): CharSequence = document.immutableCharSequence
+
+private fun lineCountImpl(document: Document): Int = document.lineCount.let { if (it > 0) it else 1 }
+
+private fun modificationStampImpl(document: Document): Long = document.modificationStamp
+
+private fun getLineByOffsetImpl(trimmedLinesCount: Long, document: Document, relativeOffset: Int): TerminalLineIndex =
+  TerminalLineIndex.of(trimmedLinesCount + document.getLineNumber(relativeOffset))
+
+private fun getStartOfLineImpl(trimmedCharsCount: Long, document: Document, relativeLine: Int): TerminalOffset =
+  TerminalOffset.of(trimmedCharsCount + document.getLineStartOffset(relativeLine))
+
+private fun getEndOfLineImpl(
+  trimmedCharsCount: Long,
+  document: Document,
+  relativeLine: Int,
+  includeEOL: Boolean,
+): TerminalOffset {
+  var result = document.getLineEndOffset(relativeLine)
+  if (includeEOL && result < document.textLength) {
+    ++result
   }
-
-  override fun getHighlightingAt(documentOffset: TerminalOffset): HighlightingInfo? {
-    throw UnsupportedOperationException("Not implemented for performance reasons")
-  }
+  return TerminalOffset.of(trimmedCharsCount + result)
 }
 
-private data class TerminalOffsetImpl(private val absolute: Long) : TerminalOffset {
-  override fun compareTo(other: TerminalOffset): Int = toAbsolute().compareTo(other.toAbsolute())
-  override fun toAbsolute(): Long = absolute
-  override fun plus(charCount: Long): TerminalOffset = TerminalOffsetImpl(absolute + charCount)
-  override fun minus(charCount: Long): TerminalOffset = plus(-charCount)
-  override fun minus(other: TerminalOffset): Long = toAbsolute() - other.toAbsolute()
-  override fun toString(): String = "${toAbsolute()}L"
-}
+private fun getTextImpl(
+  document: Document,
+  relativeStart: Int,
+  relativeEnd: Int,
+): String = document.getText(TextRange(relativeStart, relativeEnd))
 
-@ApiStatus.Internal
-@TestOnly
-val ZERO_TERMINAL_OFFSET: TerminalOffset = TerminalOffsetImpl(0L)
-
-private data class TerminalLineImpl(private val absolute: Long) : TerminalLine {
-  override fun compareTo(other: TerminalLine): Int = toAbsolute().compareTo(other.toAbsolute())
-  override fun toAbsolute(): Long = absolute
-  override fun plus(lineCount: Long): TerminalLine = TerminalLineImpl(absolute + lineCount)
-  override fun minus(other: TerminalLine): Long = toAbsolute() - other.toAbsolute()
-  override fun toString(): String = "${toAbsolute()}L"
-}
+private data class TerminalCursorOffsetChangedImpl(
+  override val model: MutableTerminalOutputModelImpl,
+  override val oldOffset: TerminalOffset,
+  override val newOffset: TerminalOffset,
+) : TerminalCursorOffsetChanged
 
 private val LOG = logger<MutableTerminalOutputModelImpl>()
